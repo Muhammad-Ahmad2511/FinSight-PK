@@ -12,12 +12,13 @@ Pakistani stock market participants have almost no AI-assisted forecasting tools
 
 ## Approach
 
-FinSight PK is an end-to-end pipeline with four stages:
+FinSight PK is an end-to-end pipeline with five stages:
 
-1. **Sentiment Model** — ~1,500 headlines scraped from Dawn Business & Profit.pk, manually annotated, used to fine-tune DistilBERT for daily sentiment scoring.
-2. **Regime Detection** — 20-day rolling return and rolling volatility are computed from KSE-100 daily closes, standardized, and clustered with K-Means (k=3). Clusters are mapped to Bear / Sideways / Bull by ranking their mean rolling return (lowest → Bear, highest → Bull), validated with a silhouette score, and one-hot encoded for downstream use.
-3. **Hybrid LSTM Forecasting** — Combines price, technical indicators (RSI, MACD, EMA), sentiment score, regime label, and Pakistan EPU Index to forecast prices 7/14/30 days ahead.
-4. **Explainability (SHAP)** — Per-regime SHAP analysis (via `DeepExplainer`) showing which features drive predictions differently across market conditions.
+1. **Sentiment Model** — Headlines scraped day-by-day from Dawn Business (2025–present), manually annotated, used to fine-tune DistilBERT for daily sentiment scoring.
+2. **Technical Indicators** — RSI (14-day, Wilder's smoothing), MACD (EMA-12 − EMA-26, with 9-day signal line), and EMA-12/26 computed via a manual pandas implementation (no `pandas_ta` dependency).
+3. **Regime Detection** — 20-day rolling return and rolling volatility are computed from KSE-100 daily closes, standardized, and clustered with K-Means (k=3). Clusters are mapped to Bear / Sideways / Bull by ranking their mean rolling return (lowest → Bear, highest → Bull), validated with a silhouette score, and one-hot encoded for downstream use.
+4. **Hybrid LSTM Forecasting** — Combines price, technical indicators (RSI, MACD, EMA), sentiment score, regime label, and Pakistan EPU Index to forecast prices 7/14/30 days ahead.
+5. **Explainability (SHAP)** — Per-regime SHAP analysis (via `DeepExplainer`) showing which features drive predictions differently across market conditions.
 
 ## What Makes It Different
 
@@ -37,7 +38,7 @@ FinSight PK is an end-to-end pipeline with four stages:
 
 ## Tech Stack
 
-DistilBERT (HuggingFace) · scikit-learn (K-Means) · LSTM · SHAP · pandas-ta · Yahoo Finance/PSX data
+DistilBERT (HuggingFace) · scikit-learn (K-Means) · LSTM · SHAP · pandas · BeautifulSoup / requests (scraping) · Yahoo Finance/PSX data
 
 ## Status
 
