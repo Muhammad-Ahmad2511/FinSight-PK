@@ -1,4 +1,4 @@
-# FinSight PK 🇵🇰📈
+# FinSight PK 📈
 
 **Regime-Aware, Sentiment-Augmented KSE-100 Forecasting with Explainability & Web Deployment**
 
