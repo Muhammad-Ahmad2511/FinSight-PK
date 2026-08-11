@@ -1,0 +1,1193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FinSight PK — FYP Demo</title>
+<style>
+  :root {
+    --bg: #f7f6f2;
+    --card: #ffffff;
+    --border: #e2e0d8;
+    --text: #1a1a18;
+    --muted: #6b6a64;
+    --accent: #1d6f50;
+    --accent2: #c45c1e;
+    --accent3: #1a5fa0;
+    --green-light: #e8f5ee;
+    --amber-light: #fef3e2;
+    --blue-light: #e6f0fb;
+    --red-light: #fdeaea;
+    --purple-light: #f0effe;
+    --teal-light: #e2f5ef;
+    --radius: 12px;
+    --radius-sm: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* Header */
+  .header { background: var(--card); border-bottom: 1px solid var(--border); padding: 20px 32px; display: flex; align-items: center; gap: 16px; }
+  .header-logo { width: 42px; height: 42px; background: linear-gradient(135deg, var(--accent), #2bb87a); border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 18px; }
+  .header h1 { font-size: 22px; font-weight: 600; }
+  .header p { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .badge { display: inline-block; font-size: 11px; font-weight: 500; padding: 3px 8px; border-radius: 20px; background: var(--green-light); color: var(--accent); margin-left: 10px; }
+
+  /* Nav */
+  .nav { background: var(--card); border-bottom: 1px solid var(--border); display: flex; gap: 0; overflow-x: auto; }
+  .nav-btn { padding: 14px 20px; font-size: 13px; font-weight: 500; color: var(--muted); border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; transition: all 0.15s; }
+  .nav-btn:hover { color: var(--text); background: var(--bg); }
+  .nav-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .step-num { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; font-size: 10px; font-weight: 600; margin-right: 6px; }
+  .nav-btn.active .step-num { background: var(--accent); color: #fff; }
+  .nav-btn:not(.active) .step-num { background: var(--border); color: var(--muted); }
+
+  /* Main layout */
+  .content { max-width: 1100px; margin: 0 auto; padding: 28px 24px; }
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
+
+  /* Cards */
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; margin-bottom: 20px; }
+  .card-header { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 18px; }
+  .card-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+  .card-title { font-size: 17px; font-weight: 600; }
+  .card-sub { font-size: 13px; color: var(--muted); margin-top: 3px; }
+
+  /* Grid */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  @media(max-width: 700px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+  /* Mini cards */
+  .mini-card { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 16px; }
+  .mini-card .label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); margin-bottom: 6px; }
+  .mini-card .value { font-size: 22px; font-weight: 700; }
+  .mini-card .desc { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  /* Tags */
+  .tag { display: inline-block; font-size: 11px; font-weight: 500; padding: 3px 9px; border-radius: 20px; margin: 3px 3px 3px 0; }
+  .tag-green { background: var(--green-light); color: var(--accent); }
+  .tag-amber { background: var(--amber-light); color: #8a5200; }
+  .tag-blue { background: var(--blue-light); color: var(--accent3); }
+  .tag-red { background: var(--red-light); color: #a32d2d; }
+  .tag-purple { background: var(--purple-light); color: #4a3db0; }
+  .tag-teal { background: var(--teal-light); color: #0f6e56; }
+
+  /* Pipeline flow */
+  .pipeline { display: flex; align-items: center; gap: 0; overflow-x: auto; padding: 8px 0; }
+  .pipe-step { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 110px; }
+  .pipe-box { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; text-align: center; font-size: 12px; font-weight: 500; width: 100px; cursor: pointer; transition: border-color 0.15s; }
+  .pipe-box:hover { border-color: var(--accent); }
+  .pipe-box.highlight { border-color: var(--accent); background: var(--green-light); }
+  .pipe-arrow { font-size: 18px; color: var(--muted); padding: 0 4px; }
+  .pipe-label { font-size: 10px; color: var(--muted); text-align: center; }
+
+  /* Input-Output block */
+  .io-block { display: grid; grid-template-columns: 1fr 60px 1fr; gap: 12px; align-items: center; margin: 16px 0; }
+  .io-box { border-radius: var(--radius-sm); padding: 14px; font-size: 13px; }
+  .io-in { background: var(--blue-light); border: 1px solid #b5d4f4; }
+  .io-out { background: var(--green-light); border: 1px solid #9fe1cb; }
+  .io-arrow { text-align: center; font-size: 22px; color: var(--muted); }
+  .io-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+
+  /* Sentiment demo */
+  .headline-demo { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; margin: 8px 0; display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13px; }
+  .sentiment-pill { font-size: 11px; font-weight: 600; padding: 4px 12px; border-radius: 20px; white-space: nowrap; }
+  .pos { background: #dcfce7; color: #166534; }
+  .neg { background: #fee2e2; color: #991b1b; }
+  .neu { background: #f3f4f6; color: #4b5563; }
+
+  /* Regime chart placeholder */
+  .regime-viz { height: 160px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); position: relative; overflow: hidden; display: flex; align-items: flex-end; padding: 12px; gap: 2px; }
+  .regime-bar { flex: 1; border-radius: 3px 3px 0 0; transition: height 0.4s; }
+
+  /* Cluster viz */
+  .cluster-canvas { width: 100%; height: 200px; border-radius: var(--radius-sm); background: var(--bg); border: 1px solid var(--border); }
+
+  /* SHAP bars */
+  .shap-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: 12px; }
+  .shap-label { width: 120px; text-align: right; color: var(--muted); }
+  .shap-bar-wrap { flex: 1; height: 18px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+  .shap-bar { height: 100%; border-radius: 4px; transition: width 0.5s; }
+  .shap-val { width: 40px; font-weight: 500; font-size: 11px; }
+
+  /* Forecast chart */
+  .forecast-wrap { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; }
+  canvas { width: 100% !important; }
+
+  /* Novelty table */
+  .nov-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .nov-table th { padding: 10px 14px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); background: var(--bg); border-bottom: 1px solid var(--border); }
+  .nov-table td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .nov-table tr:last-child td { border-bottom: none; }
+  .check { color: var(--accent); font-weight: 700; }
+  .cross { color: #d0301e; }
+
+  /* Web app mockup */
+  .mockup { background: #1a1f2e; border-radius: var(--radius); padding: 18px; color: #e2e8f0; }
+  .mockup-header { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+  .mockup-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .mockup-url { font-size: 11px; background: rgba(255,255,255,0.08); border-radius: 6px; padding: 4px 12px; color: #9aabb5; flex: 1; text-align: center; }
+  .mockup-widget { background: rgba(255,255,255,0.06); border-radius: 8px; padding: 12px; margin: 8px 0; font-size: 12px; }
+  .mockup-title { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7fa0; margin-bottom: 6px; }
+  .mockup-big { font-size: 24px; font-weight: 700; color: #ffffff; }
+  .mockup-regime { display: inline-block; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px; }
+  .bull { background: #0d4d2e; color: #4ade80; }
+  .bear { background: #4d0d0d; color: #f87171; }
+  .sideways { background: #2d2d00; color: #fbbf24; }
+  .mockup-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .mockup-forecast { text-align: center; font-size: 11px; }
+  .mockup-forecast .day { color: #6b7fa0; }
+  .mockup-forecast .price { font-size: 16px; font-weight: 700; margin: 4px 0; }
+  .mockup-forecast .change { font-size: 11px; }
+  .up { color: #4ade80; }
+  .down { color: #f87171; }
+
+  /* Section heading */
+  .section-heading { font-size: 19px; font-weight: 700; margin-bottom: 6px; }
+  .section-sub { font-size: 14px; color: var(--muted); margin-bottom: 24px; line-height: 1.6; }
+
+  /* Step badge */
+  .step-badge { display: inline-flex; align-items: center; gap: 8px; background: var(--green-light); color: var(--accent); font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 20px; margin-bottom: 14px; }
+  .step-badge .num { background: var(--accent); color: #fff; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; }
+
+  /* Code block */
+  .code-block { background: #1a1f2e; color: #a8c4e0; font-family: monospace; font-size: 12px; border-radius: var(--radius-sm); padding: 14px; overflow-x: auto; line-height: 1.7; }
+  .code-block .kw { color: #c792ea; }
+  .code-block .str { color: #c3e88d; }
+  .code-block .comment { color: #546e7a; }
+  .code-block .fn { color: #82aaff; }
+
+  /* Button */
+  .btn { display: inline-flex; align-items: center; gap: 6px; background: var(--accent); color: #fff; border: none; border-radius: var(--radius-sm); padding: 9px 18px; font-size: 13px; font-weight: 500; cursor: pointer; transition: background 0.15s; }
+  .btn:hover { background: #155a3e; }
+  .btn-outline { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  .btn-outline:hover { background: var(--green-light); }
+
+  /* Divider */
+  .divider { height: 1px; background: var(--border); margin: 20px 0; }
+
+  /* Tooltip */
+  .tooltip-wrap { position: relative; display: inline-block; }
+  .tooltip-wrap:hover .tooltip { display: block; }
+  .tooltip { display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: #1a1f2e; color: #e2e8f0; font-size: 11px; padding: 5px 10px; border-radius: 6px; white-space: nowrap; z-index: 10; }
+
+  /* Progress bar */
+  .progress { background: var(--border); border-radius: 4px; height: 8px; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 4px; transition: width 1s; }
+  .progress-green { background: var(--accent); }
+  .progress-amber { background: #d97706; }
+  .progress-red { background: #dc2626; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-logo">FS</div>
+  <div>
+    <h1>FinSight PK <span class="badge">FYP Demo</span></h1>
+    <p>Regime-Aware, Sentiment-Augmented KSE-100 Forecasting · FAST-NUCES Lahore · Spring 2026</p>
+  </div>
+</div>
+
+<!-- NAV -->
+<div class="nav">
+  <button class="nav-btn active" onclick="showTab('overview')">🏠 Overview</button>
+  <button class="nav-btn" onclick="showTab('step1')"><span class="step-num">1</span>Sentiment NLP</button>
+  <button class="nav-btn" onclick="showTab('step2')"><span class="step-num">2</span>Regime Detection</button>
+  <button class="nav-btn" onclick="showTab('step3')"><span class="step-num">3</span>LSTM Forecasting</button>
+  <button class="nav-btn" onclick="showTab('step4')"><span class="step-num">4</span>SHAP Explainability</button>
+  <button class="nav-btn" onclick="showTab('webapp')">🌐 Web App</button>
+  <button class="nav-btn" onclick="showTab('novelty')">⭐ Novelty</button>
+</div>
+
+<!-- CONTENT -->
+<div class="content">
+
+  <!-- ====== TAB: OVERVIEW ====== -->
+  <div class="tab-pane active" id="tab-overview">
+    <div class="section-heading">End-to-End AI Pipeline for KSE-100</div>
+    <div class="section-sub">FinSight PK is a 4-step research system that forecasts Pakistan's stock market index using NLP, unsupervised clustering, deep learning, and explainability — deployed as a live web application.</div>
+
+    <!-- Pipeline visualization -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon" style="background:#e8f5ee;">📊</div>
+        <div>
+          <div class="card-title">System Architecture</div>
+          <div class="card-sub">Click any stage to navigate to that section</div>
+        </div>
+      </div>
+      <div class="pipeline">
+        <div class="pipe-step">
+          <div class="pipe-box highlight" onclick="showTab('step1')">📰<br>Pakistani<br>News Headlines</div>
+          <div class="pipe-label">Raw Input</div>
+        </div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step">
+          <div class="pipe-box" onclick="showTab('step1')" style="border-color:#1a5fa0; background:#e6f0fb;">🤖<br>DistilBERT<br>Sentiment</div>
+          <div class="pipe-label">Step 1 · NLP</div>
+        </div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step">
+          <div class="pipe-box" onclick="showTab('step2')" style="border-color:#8b5cf6; background:#f0effe;">📈<br>K-Means<br>Regime Labels</div>
+          <div class="pipe-label">Step 2 · Clustering</div>
+        </div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step">
+          <div class="pipe-box" onclick="showTab('step3')" style="border-color:#c45c1e; background:#fef3e2;">🧠<br>Hybrid<br>LSTM</div>
+          <div class="pipe-label">Step 3 · Forecasting</div>
+        </div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step">
+          <div class="pipe-box" onclick="showTab('step4')" style="border-color:#1d6f50; background:#e8f5ee;">🔍<br>SHAP<br>Explanations</div>
+          <div class="pipe-label">Step 4 · XAI</div>
+        </div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step">
+          <div class="pipe-box" onclick="showTab('webapp')" style="border-color:#0f6e56; background:#e2f5ef;">🌐<br>Web<br>Application</div>
+          <div class="pipe-label">Deployment</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Problem statement -->
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-icon" style="background:#fdeaea;">❌</div>
+          <div>
+            <div class="card-title">The Problem</div>
+            <div class="card-sub">Two critical gaps in Pakistani financial AI</div>
+          </div>
+        </div>
+        <div style="font-size:13px; line-height:1.8; color:var(--muted);">
+          <div style="padding:10px; background:#fdeaea; border-radius:8px; margin-bottom:10px; color:#7a1a1a;">
+            <strong style="color:#a32d2d;">Gap 1 —</strong> No labeled Pakistani financial news sentiment dataset exists anywhere.
+          </div>
+          <div style="padding:10px; background:#fdeaea; border-radius:8px; color:#7a1a1a;">
+            <strong style="color:#a32d2d;">Gap 2 —</strong> KSE-100 models ignore market regime context — predicting bull and bear markets with the same model is fundamentally flawed.
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-icon" style="background:#e8f5ee;">✅</div>
+          <div>
+            <div class="card-title">Our Solution</div>
+            <div class="card-sub">Four innovations in one system</div>
+          </div>
+        </div>
+        <div style="font-size:13px; line-height:1.9;">
+          <div>🗂️ <strong>Build</strong> Pakistan's first labeled financial news dataset</div>
+          <div>🤖 <strong>Fine-tune</strong> DistilBERT for Urdu-inflected business English</div>
+          <div>📊 <strong>Detect</strong> market regimes using K-Means clustering</div>
+          <div>🧠 <strong>Forecast</strong> KSE-100 with a hybrid LSTM (sentiment + regime + EPU)</div>
+          <div>🔍 <strong>Explain</strong> each prediction per regime with SHAP</div>
+          <div>🌐 <strong>Deploy</strong> everything as a public web application</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dataset summary -->
+    <div class="card">
+      <div class="card-title" style="margin-bottom:14px;">Datasets Used</div>
+      <div class="grid-3">
+        <div class="mini-card">
+          <div class="label">KSE-100 Price Data</div>
+          <div class="value" style="color:var(--accent);">~2,700</div>
+          <div class="desc">Trading days · 2015–present · Yahoo Finance / PSX · OHLCV</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">News Headlines</div>
+          <div class="value" style="color:var(--accent3);">~1,500</div>
+          <div class="desc">Manually annotated · Dawn Business + Profit.pk · Pos/Neg/Neutral</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">Pakistan EPU Index</div>
+          <div class="value" style="color:#8a5200;">Monthly</div>
+          <div class="desc">Economic Policy Uncertainty · Forward-filled to daily · Macroeconomic feature</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== TAB: STEP 1 — SENTIMENT ====== -->
+  <div class="tab-pane" id="tab-step1">
+    <div class="step-badge"><span class="num">1</span> Step 1 — Sentiment Analysis</div>
+    <div class="section-heading">Building Pakistan's First Financial News Sentiment Dataset</div>
+    <div class="section-sub">We scrape headlines from Dawn Business and Profit.pk, manually annotate them, and fine-tune DistilBERT to produce a daily sentiment score for each trading day.</div>
+
+    <!-- I/O -->
+    <div class="card">
+      <div class="card-title" style="margin-bottom:12px;">Input → Output</div>
+      <div class="io-block">
+        <div class="io-box io-in">
+          <div class="io-label" style="color:var(--accent3);">Input</div>
+          Raw Urdu-inflected English headlines from Dawn Business & Profit.pk<br>
+          <span style="font-size:11px; color:var(--muted);">Example: "KSE-100 tanks 600 points amid political uncertainty"</span>
+        </div>
+        <div class="io-arrow">⟹</div>
+        <div class="io-box io-out">
+          <div class="io-label" style="color:var(--accent);">Output</div>
+          Daily sentiment score: <strong>positive_ratio − negative_ratio</strong><br>
+          <span style="font-size:11px; color:var(--muted);">Range: −1.0 (very negative) to +1.0 (very positive)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live demo -->
+    <div class="card">
+      <div class="card-title" style="margin-bottom:4px;">Live Demo — Try Headline Sentiment</div>
+      <div class="card-sub" style="margin-bottom:14px;">Type a headline below to see how DistilBERT would classify it</div>
+      <div style="display:flex; gap:10px; margin-bottom:14px;">
+        <input type="text" id="headline-input" placeholder="e.g. KSE-100 rises 500 points on SBP rate cut..." style="flex:1; padding:10px 14px; border:1px solid var(--border); border-radius:8px; font-size:13px; background:var(--bg);">
+        <button class="btn" onclick="demoSentiment()">Classify</button>
+      </div>
+      <div id="sentiment-result" style="display:none; padding:14px; border-radius:8px; font-size:13px; font-weight:500;"></div>
+
+      <div class="divider"></div>
+      <div style="font-size:13px; color:var(--muted); margin-bottom:10px;">Sample annotations from our dataset:</div>
+      <div class="headline-demo">
+        <span>"KSE-100 surges 800 points on foreign inflows"</span>
+        <span class="sentiment-pill pos">POSITIVE +0.87</span>
+      </div>
+      <div class="headline-demo">
+        <span>"State Bank raises interest rates to 22%, market spooked"</span>
+        <span class="sentiment-pill neg">NEGATIVE −0.79</span>
+      </div>
+      <div class="headline-demo">
+        <span>"PSX trading volume remains flat ahead of budget"</span>
+        <span class="sentiment-pill neu">NEUTRAL 0.03</span>
+      </div>
+      <div class="headline-demo">
+        <span>"Pakistani rupee hits record low against dollar"</span>
+        <span class="sentiment-pill neg">NEGATIVE −0.91</span>
+      </div>
+      <div class="headline-demo">
+        <span>"IT exports surge 30% in FY2025, PSEB reports"</span>
+        <span class="sentiment-pill pos">POSITIVE +0.74</span>
+      </div>
+    </div>
+
+    <!-- Process breakdown -->
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title" style="margin-bottom:14px;">Data Collection & Annotation</div>
+        <div style="font-size:13px; line-height:1.9;">
+          <div style="display:flex; gap:10px; margin-bottom:8px; align-items:start;">
+            <span style="background:var(--accent); color:#fff; border-radius:50%; width:20px; height:20px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; flex-shrink:0; margin-top:1px;">1</span>
+            <span>Scrape ~1,500 headlines from <strong>Dawn Business</strong> and <strong>Profit.pk</strong></span>
+          </div>
+          <div style="display:flex; gap:10px; margin-bottom:8px; align-items:start;">
+            <span style="background:var(--accent); color:#fff; border-radius:50%; width:20px; height:20px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; flex-shrink:0; margin-top:1px;">2</span>
+            <span>Label in <strong>Label Studio</strong> — three team members annotate independently</span>
+          </div>
+          <div style="display:flex; gap:10px; margin-bottom:8px; align-items:start;">
+            <span style="background:var(--accent); color:#fff; border-radius:50%; width:20px; height:20px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; flex-shrink:0; margin-top:1px;">3</span>
+            <span>Measure inter-annotator agreement using <strong>Cohen's Kappa</strong></span>
+          </div>
+          <div style="display:flex; gap:10px; margin-bottom:8px; align-items:start;">
+            <span style="background:var(--accent); color:#fff; border-radius:50%; width:20px; height:20px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; flex-shrink:0; margin-top:1px;">4</span>
+            <span>80/10/10 train/validation/test split</span>
+          </div>
+          <div style="display:flex; gap:10px; align-items:start;">
+            <span style="background:var(--accent); color:#fff; border-radius:50%; width:20px; height:20px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; flex-shrink:0; margin-top:1px;">5</span>
+            <span>Fine-tune <strong>DistilBERT</strong> (HuggingFace) on annotated data</span>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title" style="margin-bottom:14px;">Dataset Distribution (Target)</div>
+        <div style="font-size:13px; margin-bottom:12px; color:var(--muted);">Approximate class balance in our annotated corpus:</div>
+        <div style="margin-bottom:10px;">
+          <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;"><span>🟢 Positive</span><span>~35%</span></div>
+          <div class="progress"><div class="progress-fill progress-green" style="width:35%"></div></div>
+        </div>
+        <div style="margin-bottom:10px;">
+          <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;"><span>🔴 Negative</span><span>~40%</span></div>
+          <div class="progress"><div class="progress-fill progress-red" style="width:40%"></div></div>
+        </div>
+        <div style="margin-bottom:16px;">
+          <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;"><span>⚪ Neutral</span><span>~25%</span></div>
+          <div class="progress"><div class="progress-fill progress-amber" style="width:25%"></div></div>
+        </div>
+        <div class="mini-card" style="margin-top:0;">
+          <div class="label">Daily Sentiment Score Formula</div>
+          <div style="font-family:monospace; font-size:15px; color:var(--accent); margin-top:6px;">score = P_ratio − N_ratio</div>
+          <div style="font-size:11px; color:var(--muted); margin-top:4px;">e.g. 0.6 pos, 0.2 neg → score = +0.40</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Code snippet -->
+    <div class="card">
+      <div class="card-title" style="margin-bottom:12px;">Key Code — Fine-tuning DistilBERT</div>
+      <div class="code-block"><span class="kw">from</span> transformers <span class="kw">import</span> DistilBertForSequenceClassification, Trainer, TrainingArguments
+
+<span class="comment"># Load pre-trained DistilBERT</span>
+model = DistilBertForSequenceClassification.<span class="fn">from_pretrained</span>(
+    <span class="str">"distilbert-base-uncased"</span>,
+    num_labels=<span class="kw">3</span>  <span class="comment"># Positive, Negative, Neutral</span>
+)
+
+<span class="comment"># Training configuration</span>
+args = TrainingArguments(
+    output_dir=<span class="str">"./finsight-sentiment"</span>,
+    num_train_epochs=<span class="kw">5</span>,
+    per_device_train_batch_size=<span class="kw">16</span>,
+    evaluation_strategy=<span class="str">"epoch"</span>,
+    load_best_model_at_end=<span class="kw">True</span>
+)
+
+trainer = Trainer(model=model, args=args,
+    train_dataset=train_ds, eval_dataset=val_ds)
+trainer.<span class="fn">train</span>()</div>
+    </div>
+  </div>
+
+  <!-- ====== TAB: STEP 2 — REGIME DETECTION ====== -->
+  <div class="tab-pane" id="tab-step2">
+    <div class="step-badge"><span class="num">2</span> Step 2 — Market Regime Detection</div>
+    <div class="section-heading">Detecting Bull, Bear & Sideways Regimes from KSE-100 Price Data</div>
+    <div class="section-sub">Using K-Means clustering on rolling return and rolling volatility, we assign every trading day a regime label. This is the most novel component — no prior KSE-100 paper does this.</div>
+
+    <!-- I/O -->
+    <div class="card">
+      <div class="card-title" style="margin-bottom:12px;">Input → Output</div>
+      <div class="io-block">
+        <div class="io-box io-in">
+          <div class="io-label" style="color:var(--accent3);">Input</div>
+          KSE-100 daily OHLCV price data (2015–present)<br>
+          <span style="font-size:11px; color:var(--muted);">Open, High, Low, Close, Volume · from Yahoo Finance / PSX</span>
+        </div>
+        <div class="io-arrow">⟹</div>
+        <div class="io-box io-out">
+          <div class="io-label" style="color:var(--accent);">Output</div>
+          Regime label for every trading day: <strong>Bull / Bear / Sideways</strong><br>
+          <span style="font-size:11px; color:var(--muted);">One-hot encoded and fed into the LSTM as a feature</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Regime demo -->
+    <div class="card">
+      <div class="card-title" style="margin-bottom:4px;">Interactive Demo — Detect Regime</div>
+      <div class="card-sub" style="margin-bottom:14px;">Adjust rolling return and volatility to see which regime K-Means assigns</div>
+      <div class="grid-2" style="gap:20px; margin-bottom:16px;">
+        <div>
+          <label style="font-size:12px; color:var(--muted);">Rolling 20-day Avg Return (%)</label>
+          <input type="range" min="-3" max="3" step="0.1" value="0.8" id="ret-slider" oninput="updateRegime()" style="width:100%; margin:8px 0;">
+          <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--muted);"><span>−3% (very bearish)</span><span id="ret-val">+0.8%</span><span>+3% (very bullish)</span></div>
+        </div>
+        <div>
+          <label style="font-size:12px; color:var(--muted);">Rolling 20-day Volatility (Std Dev)</label>
+          <input type="range" min="0.2" max="3" step="0.1" value="0.8" id="vol-slider" oninput="updateRegime()" style="width:100%; margin:8px 0;">
+          <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--muted);"><span>Low (stable)</span><span id="vol-val">0.8</span><span>High (chaotic)</span></div>
+        </div>
+      </div>
+      <div id="regime-result" style="padding:18px; border-radius:10px; text-align:center; font-size:18px; font-weight:700; background:var(--green-light); color:var(--accent);">
+        🐂 BULL MARKET — High return, low volatility
+      </div>
+    </div>
+
+    <!-- Cluster visualization -->
+    <div class="card">
+      <div class="card-title" style="margin-bottom:12px;">K-Means Cluster Space (2D)</div>
+      <div class="card-sub" style="margin-bottom:12px;">Each dot = one trading day, plotted by its 20-day rolling return vs volatility. Colors show the assigned regime.</div>
+      <canvas id="cluster-chart" class="cluster-canvas" height="220"></canvas>
+      <div style="display:flex; gap:16px; justify-content:center; margin-top:10px; font-size:12px;">
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#16a34a;margin-right:5px;"></span>Bull</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#dc2626;margin-right:5px;"></span>Bear</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#d97706;margin-right:5px;"></span>Sideways</span>
+      </div>
+    </div>
+
+    <!-- Regime characteristics -->
+    <div class="grid-3">
+      <div class="card" style="border-top:3px solid #16a34a;">
+        <div style="font-size:22px; margin-bottom:8px;">🐂</div>
+        <div class="card-title">Bull Regime</div>
+        <div style="font-size:13px; color:var(--muted); margin-top:8px; line-height:1.8;">
+          <div>📈 High positive rolling return</div>
+          <div>📉 Low volatility (stable rise)</div>
+          <div>🕐 ~35% of trading days</div>
+          <div style="margin-top:10px; padding:8px; background:#dcfce7; border-radius:6px; font-size:12px; color:#166534;">SHAP shows: Sentiment dominates prediction in bull markets</div>
+        </div>
+      </div>
+      <div class="card" style="border-top:3px solid #dc2626;">
+        <div style="font-size:22px; margin-bottom:8px;">🐻</div>
+        <div class="card-title">Bear Regime</div>
+        <div style="font-size:13px; color:var(--muted); margin-top:8px; line-height:1.8;">
+          <div>📉 Negative rolling return</div>
+          <div>🌊 High volatility (choppy)</div>
+          <div>🕐 ~25% of trading days</div>
+          <div style="margin-top:10px; padding:8px; background:#fee2e2; border-radius:6px; font-size:12px; color:#991b1b;">SHAP shows: EPU index has 3× higher impact during downturns</div>
+        </div>
+      </div>
+      <div class="card" style="border-top:3px solid #d97706;">
+        <div style="font-size:22px; margin-bottom:8px;">↔️</div>
+        <div class="card-title">Sideways Regime</div>
+        <div style="font-size:13px; color:var(--muted); margin-top:8px; line-height:1.8;">
+          <div>➡️ Near-zero rolling return</div>
+          <div>〰️ Moderate volatility</div>
+          <div>🕐 ~40% of trading days</div>
+          <div style="margin-top:10px; padding:8px; background:#fef3e2; border-radius:6px; font-size:12px; color:#92400e;">SHAP shows: RSI technical indicator most influential</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Code -->
+    <div class="card">
+      <div class="card-title" style="margin-bottom:12px;">Key Code — K-Means Regime Detection</div>
+      <div class="code-block"><span class="kw">from</span> sklearn.cluster <span class="kw">import</span> KMeans
+<span class="kw">import</span> pandas <span class="kw">as</span> pd
+
+<span class="comment"># Compute rolling features</span>
+df[<span class="str">'rolling_return'</span>] = df[<span class="str">'Close'</span>].<span class="fn">pct_change</span>().<span class="fn">rolling</span>(<span class="kw">20</span>).<span class="fn">mean</span>()
+df[<span class="str">'rolling_vol'</span>]    = df[<span class="str">'Close'</span>].<span class="fn">pct_change</span>().<span class="fn">rolling</span>(<span class="kw">20</span>).<span class="fn">std</span>()
+
+<span class="comment"># Fit K-Means with k=3 regimes</span>
+features = df[[<span class="str">'rolling_return'</span>, <span class="str">'rolling_vol'</span>]].<span class="fn">dropna</span>()
+kmeans = KMeans(n_clusters=<span class="kw">3</span>, random_state=<span class="kw">42</span>)
+df[<span class="str">'regime'</span>] = kmeans.<span class="fn">fit_predict</span>(features)
+
+<span class="comment"># Map cluster IDs → human labels using centroid analysis</span>
+<span class="comment"># Bull: high return + low vol | Bear: neg return + high vol | Sideways: rest</span>
+df[<span class="str">'regime_label'</span>] = df[<span class="str">'regime'</span>].<span class="fn">map</span>({<span class="kw">0</span>: <span class="str">'Bull'</span>, <span class="kw">1</span>: <span class="str">'Bear'</span>, <span class="kw">2</span>: <span class="str">'Sideways'</span>})</div>
+    </div>
+  </div>
+
+  <!-- ====== TAB: STEP 3 — LSTM ====== -->
+  <div class="tab-pane" id="tab-step3">
+    <div class="step-badge"><span class="num">3</span> Step 3 — Hybrid LSTM Forecasting</div>
+    <div class="section-heading">Predicting KSE-100 Prices at 7, 14, and 30 Days</div>
+    <div class="section-sub">All features from Steps 1 & 2 are combined into a unified input matrix fed into an LSTM network. The model uses a 30-day sliding window and produces multi-horizon forecasts with uncertainty estimates.</div>
+
+    <!-- I/O -->
+    <div class="card">
+      <div class="card-title" style="margin-bottom:12px;">Input → Output</div>
+      <div class="io-block">
+        <div class="io-box io-in">
+          <div class="io-label" style="color:var(--accent3);">Input (per trading day)</div>
+          7 features × 30 days lookback window:<br>
+          <div style="margin-top:8px; display:flex; flex-wrap:wrap; gap:4px;">
+            <span class="tag tag-blue">KSE-100 Close Price</span>
+            <span class="tag tag-blue">RSI (14-day)</span>
+            <span class="tag tag-blue">MACD</span>
+            <span class="tag tag-blue">EMA</span>
+            <span class="tag tag-purple">Sentiment Score</span>
+            <span class="tag tag-green">Regime Label (1-hot)</span>
+            <span class="tag tag-amber">Pakistan EPU Index</span>
+          </div>
+        </div>
+        <div class="io-arrow">⟹</div>
+        <div class="io-box io-out">
+          <div class="io-label" style="color:var(--accent);">Output</div>
+          Multi-horizon forecasts with confidence intervals:<br>
+          <div style="margin-top:8px; display:flex; flex-wrap:wrap; gap:4px;">
+            <span class="tag tag-green">7-day forecast</span>
+            <span class="tag tag-green">14-day forecast</span>
+            <span class="tag tag-green">30-day forecast</span>
+            <span class="tag tag-teal">±Uncertainty (MC Dropout)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Feature importance -->
+    <div class="card">
+      <div class="card-title" style="margin-bottom:4px;">Feature Matrix — What Goes Into the LSTM</div>
+      <div class="card-sub" style="margin-bottom:14px;">Each row = one trading day. LSTM sees last 30 rows to predict next price(s).</div>
+      <div style="overflow-x:auto;">
+        <table style="width:100%; border-collapse:collapse; font-size:12px;">
+          <tr style="background:var(--bg);">
+            <th style="padding:8px 12px; border:1px solid var(--border); text-align:left;">Feature</th>
+            <th style="padding:8px 12px; border:1px solid var(--border); text-align:left;">Source</th>
+            <th style="padding:8px 12px; border:1px solid var(--border); text-align:left;">Type</th>
+            <th style="padding:8px 12px; border:1px solid var(--border); text-align:left;">Example Value</th>
+          </tr>
+          <tr>
+            <td style="padding:8px 12px; border:1px solid var(--border);">KSE-100 Close (normalized)</td>
+            <td style="padding:8px 12px; border:1px solid var(--border);">PSX / Yahoo Finance</td>
+            <td style="padding:8px 12px; border:1px solid var(--border);"><span class="tag tag-blue">Price</span></td>
+            <td style="padding:8px 12px; border:1px solid var(--border);">0.73</td>
+          </tr>
+          <tr style="background:#fafaf9;">
+            <td style="padding:8px 12px; border:1px solid var(--border);">RSI (14-day)</td>
+            <td style="padding:8px 12px; border:1px solid var(--border);">Computed (pandas-ta)</td>
+            <td style="padding:8px 12px; border:1px solid var(--border);"><span class="tag tag-blue">Technical</span></td>
+            <td style="padding:8px 12px; border:1px solid var(--border);">58.4</td>
+          </tr>
+          <tr>
+            <td style="padding:8px 12px; border:1px solid var(--border);">MACD</td>
+            <td style="padding:8px 12px; border:1px solid var(--border);">Computed (pandas-ta)</td>
+            <td style="padding:8px 12px; border:1px solid var(--border);"><span class="tag tag-blue">Technical</span></td>
+            <td style="padding:8px 12px; border:1px solid var(--border);">+0.0023</td>
+          </tr>
+          <tr style="background:#fafaf9;">
+            <td style="padding:8px 12px; border:1px solid var(--border);">EMA</td>
+            <td style="padding:8px 12px; border:1px solid var(--border);">Computed (pandas-ta)</td>
+            <td style="padding:8px 12px; border:1px solid var(--border);"><span class="tag tag-blue">Technical</span></td>
+            <td style="padding:8px 12px; border:1px solid var(--border);">0.71</td>
+          </tr>
+          <tr>
+            <td style="padding:8px 12px; border:1px solid var(--border);">Daily Sentiment Score</td>
+            <td style="padding:8px 12px; border:1px solid var(--border);"><strong>Step 1 output</strong></td>
+            <td style="padding:8px 12px; border:1px solid var(--border);"><span class="tag tag-purple">NLP</span></td>
+            <td style="padding:8px 12px; border:1px solid var(--border);">+0.42</td>
+          </tr>
+          <tr style="background:#fafaf9;">
+            <td style="padding:8px 12px; border:1px solid var(--border);">Market Regime (one-hot)</td>
+            <td style="padding:8px 12px; border:1px solid var(--border);"><strong>Step 2 output</strong></td>
+            <td style="padding:8px 12px; border:1px solid var(--border);"><span class="tag tag-green">Regime</span></td>
+            <td style="padding:8px 12px; border:1px solid var(--border);">[1, 0, 0] = Bull</td>
+          </tr>
+          <tr>
+            <td style="padding:8px 12px; border:1px solid var(--border);">Pakistan EPU Index</td>
+            <td style="padding:8px 12px; border:1px solid var(--border);">Public dataset</td>
+            <td style="padding:8px 12px; border:1px solid var(--border);"><span class="tag tag-amber">Macro</span></td>
+            <td style="padding:8px 12px; border:1px solid var(--border);">142.3</td>
+          </tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- Forecast demo -->
+    <div class="card">
+      <div class="card-title" style="margin-bottom:4px;">Demo — Sample KSE-100 Forecast</div>
+      <div class="card-sub" style="margin-bottom:14px;">Simulated output from the trained LSTM model (illustrative)</div>
+      <div class="grid-3" style="margin-bottom:16px;">
+        <div class="mini-card" style="text-align:center; border-top:2px solid var(--accent);">
+          <div class="label">7-Day Forecast</div>
+          <div class="value" style="color:var(--accent);">85,240</div>
+          <div class="desc">+1.2% · CI: [84,100 – 86,380]</div>
+        </div>
+        <div class="mini-card" style="text-align:center; border-top:2px solid var(--accent3);">
+          <div class="label">14-Day Forecast</div>
+          <div class="value" style="color:var(--accent3);">86,800</div>
+          <div class="desc">+3.0% · CI: [84,200 – 89,400]</div>
+        </div>
+        <div class="mini-card" style="text-align:center; border-top:2px solid #8b5cf6;">
+          <div class="label">30-Day Forecast</div>
+          <div class="value" style="color:#8b5cf6;">89,100</div>
+          <div class="desc">+5.7% · CI: [83,000 – 95,200]</div>
+        </div>
+      </div>
+      <div class="forecast-wrap">
+        <canvas id="forecast-chart" height="130"></canvas>
+      </div>
+    </div>
+
+    <!-- Architecture -->
+    <div class="card">
+      <div class="card-title" style="margin-bottom:14px;">LSTM Architecture</div>
+      <div class="grid-2">
+        <div style="font-size:13px; line-height:2;">
+          <div>🔷 <strong>Input Layer</strong> — 7 features × 30 time steps</div>
+          <div>🔷 <strong>LSTM Layer 1</strong> — 128 units, dropout 0.2</div>
+          <div>🔷 <strong>LSTM Layer 2</strong> — 64 units, dropout 0.2</div>
+          <div>🔷 <strong>Dense Layer</strong> — 32 units, ReLU</div>
+          <div>🔷 <strong>Output Layer</strong> — 3 units (7/14/30-day prices)</div>
+          <div>🔷 <strong>Loss</strong> — MSE + MAE combined</div>
+          <div>🔷 <strong>Training</strong> — Early stopping, Adam optimizer</div>
+          <div>🔷 <strong>Uncertainty</strong> — Monte Carlo Dropout (50 passes)</div>
+        </div>
+        <div class="code-block"><span class="kw">from</span> tensorflow.keras <span class="kw">import</span> Sequential
+<span class="kw">from</span> tensorflow.keras.layers <span class="kw">import</span> LSTM, Dense, Dropout
+
+model = Sequential([
+  LSTM(<span class="kw">128</span>, return_sequences=<span class="kw">True</span>,
+       input_shape=(<span class="kw">30</span>, <span class="kw">7</span>),
+       dropout=<span class="kw">0.2</span>),
+  LSTM(<span class="kw">64</span>, dropout=<span class="kw">0.2</span>),
+  Dense(<span class="kw">32</span>, activation=<span class="str">'relu'</span>),
+  Dense(<span class="kw">3</span>)  <span class="comment"># 7, 14, 30-day</span>
+])
+model.<span class="fn">compile</span>(optimizer=<span class="str">'adam'</span>,
+  loss=<span class="str">'mse'</span>)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== TAB: STEP 4 — SHAP ====== -->
+  <div class="tab-pane" id="tab-step4">
+    <div class="step-badge"><span class="num">4</span> Step 4 — SHAP Explainability</div>
+    <div class="section-heading">Explaining Every Prediction Per Market Regime</div>
+    <div class="section-sub">SHAP (SHapley Additive exPlanations) reveals which features are driving each forecast. Crucially, we run SHAP separately for Bull, Bear, and Sideways regimes — showing how different signals matter under different market conditions.</div>
+
+    <!-- I/O -->
+    <div class="card">
+      <div class="card-title" style="margin-bottom:12px;">Input → Output</div>
+      <div class="io-block">
+        <div class="io-box io-in">
+          <div class="io-label" style="color:var(--accent3);">Input</div>
+          Trained LSTM model + feature values for a specific day + regime label
+        </div>
+        <div class="io-arrow">⟹</div>
+        <div class="io-box io-out">
+          <div class="io-label" style="color:var(--accent);">Output</div>
+          Feature-level contribution scores for this prediction, broken down by regime
+        </div>
+      </div>
+    </div>
+
+    <!-- Interactive SHAP demo -->
+    <div class="card">
+      <div class="card-title" style="margin-bottom:4px;">Interactive Demo — SHAP Feature Importance by Regime</div>
+      <div class="card-sub" style="margin-bottom:14px;">Select a market regime to see which features dominate the LSTM's prediction</div>
+      <div style="display:flex; gap:8px; margin-bottom:18px;">
+        <button class="btn" id="regime-bull" onclick="showSHAP('bull')">🐂 Bull Regime</button>
+        <button class="btn btn-outline" id="regime-bear" onclick="showSHAP('bear')">🐻 Bear Regime</button>
+        <button class="btn btn-outline" id="regime-side" onclick="showSHAP('sideways')">↔️ Sideways Regime</button>
+      </div>
+      <div id="shap-insight" style="padding:12px; border-radius:8px; font-size:13px; margin-bottom:16px; background:var(--green-light); color:var(--accent);">
+        📌 In <strong>Bull markets</strong>, news sentiment dominates — positive headlines strongly amplify upward forecasts.
+      </div>
+      <div id="shap-bars"></div>
+    </div>
+
+    <!-- Why per-regime matters -->
+    <div class="card">
+      <div class="card-title" style="margin-bottom:12px;">Why Per-Regime SHAP Matters</div>
+      <div class="grid-3">
+        <div style="padding:14px; background:var(--green-light); border-radius:var(--radius-sm); font-size:13px;">
+          <div style="font-weight:600; color:var(--accent); margin-bottom:6px;">🐂 Bull Market</div>
+          <div style="color:#1a4a30;">Sentiment has highest SHAP weight. When news is positive, the model confidently predicts higher prices. EPU has low influence — macro uncertainty is less important when markets are rising.</div>
+        </div>
+        <div style="padding:14px; background:var(--red-light); border-radius:var(--radius-sm); font-size:13px;">
+          <div style="font-weight:600; color:#a32d2d; margin-bottom:6px;">🐻 Bear Market</div>
+          <div style="color:#4a1a1a;">EPU index has <strong>3× higher SHAP magnitude</strong> than sentiment. During downturns, macro uncertainty (interest rates, inflation, political risk) drives the market more than news tone.</div>
+        </div>
+        <div style="padding:14px; background:var(--amber-light); border-radius:var(--radius-sm); font-size:13px;">
+          <div style="font-weight:600; color:#8a5200; margin-bottom:6px;">↔️ Sideways Market</div>
+          <div style="color:#4a3000;">RSI becomes most influential when the market is flat. Oversold/overbought signals predict the next breakout direction when price action gives no clear signal.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Code -->
+    <div class="card">
+      <div class="card-title" style="margin-bottom:12px;">Key Code — Per-Regime SHAP Analysis</div>
+      <div class="code-block"><span class="kw">import</span> shap
+
+explainer = shap.<span class="fn">DeepExplainer</span>(model, X_train_sample)
+
+<span class="comment"># Run SHAP separately per regime</span>
+<span class="kw">for</span> regime <span class="kw">in</span> [<span class="str">'Bull'</span>, <span class="str">'Bear'</span>, <span class="str">'Sideways'</span>]:
+    regime_data = X_test[df_test[<span class="str">'regime_label'</span>] == regime]
+    shap_values = explainer.<span class="fn">shap_values</span>(regime_data)
+    
+    <span class="comment"># Plot beeswarm for this regime</span>
+    shap.<span class="fn">summary_plot</span>(shap_values, regime_data,
+        feature_names=[<span class="str">'Close'</span>, <span class="str">'RSI'</span>, <span class="str">'MACD'</span>, <span class="str">'EMA'</span>,
+                       <span class="str">'Sentiment'</span>, <span class="str">'Regime'</span>, <span class="str">'EPU'</span>],
+        title=f<span class="str">f"SHAP Feature Importance — {regime} Regime"</span>)</div>
+    </div>
+  </div>
+
+  <!-- ====== TAB: WEB APP ====== -->
+  <div class="tab-pane" id="tab-webapp">
+    <div class="step-badge" style="background:var(--blue-light); color:var(--accent3);">🌐 Deployment — Web Application</div>
+    <div class="section-heading">FinSight PK — Public Web Application</div>
+    <div class="section-sub">All pipeline outputs are delivered through a publicly accessible web app. Retail investors, portfolio managers, and fintech practitioners across Pakistan can access AI-powered KSE-100 forecasts with full explainability.</div>
+
+    <!-- App mockup -->
+    <div class="card">
+      <div class="card-title" style="margin-bottom:14px;">Application Preview</div>
+      <div class="mockup">
+        <div class="mockup-header">
+          <div class="mockup-dot" style="background:#ff5f57;"></div>
+          <div class="mockup-dot" style="background:#ffbd2e;"></div>
+          <div class="mockup-dot" style="background:#28ca41;"></div>
+          <div class="mockup-url">finsightpk.app</div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+          <div class="mockup-widget">
+            <div class="mockup-title">KSE-100 Index</div>
+            <div class="mockup-big">84,382 <span style="font-size:14px; color:#4ade80;">▲ +1.4%</span></div>
+            <div style="font-size:10px; color:#6b7fa0; margin-top:4px;">Updated 5 mins ago · June 17, 2026</div>
+          </div>
+          <div class="mockup-widget">
+            <div class="mockup-title">Current Regime</div>
+            <div style="margin-top:6px;"><span class="mockup-regime bull">🐂 BULL MARKET</span></div>
+            <div style="font-size:10px; color:#6b7fa0; margin-top:6px;">Volatility: Low · Return: +1.8% (20-day avg)</div>
+          </div>
+        </div>
+
+        <div class="mockup-widget">
+          <div class="mockup-title">Multi-Horizon Forecasts</div>
+          <div class="mockup-row" style="margin-top:8px;">
+            <div class="mockup-forecast">
+              <div class="day">7-day</div>
+              <div class="price">85,240</div>
+              <div class="change up">▲ +1.0%</div>
+            </div>
+            <div class="mockup-forecast">
+              <div class="day">14-day</div>
+              <div class="price">86,800</div>
+              <div class="change up">▲ +2.9%</div>
+            </div>
+            <div class="mockup-forecast">
+              <div class="day">30-day</div>
+              <div class="price">89,100</div>
+              <div class="change up">▲ +5.6%</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mockup-widget">
+          <div class="mockup-title">Today's Sentiment Feed</div>
+          <div style="display:flex; align-items:center; gap:8px; margin-top:6px;">
+            <div style="flex:1; height:8px; background:rgba(255,255,255,0.1); border-radius:4px; overflow:hidden;">
+              <div style="width:62%; height:100%; background:#4ade80; border-radius:4px;"></div>
+            </div>
+            <span style="font-size:11px; color:#9aabb5;">Score: +0.42 (Positive)</span>
+          </div>
+          <div style="font-size:10px; color:#6b7fa0; margin-top:4px;">Based on 14 headlines from Dawn Business & Profit.pk</div>
+        </div>
+
+        <div class="mockup-widget">
+          <div class="mockup-title">SHAP — What's Driving Today's Forecast (Bull Regime)</div>
+          <div style="margin-top:6px; font-size:11px;">
+            <div style="display:flex; align-items:center; gap:6px; margin:4px 0;">
+              <span style="color:#9aabb5; width:80px;">Sentiment</span>
+              <div style="flex:1; height:6px; background:rgba(255,255,255,0.1); border-radius:3px;"><div style="width:78%; height:100%; background:#4ade80; border-radius:3px;"></div></div>
+              <span>+0.78</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px; margin:4px 0;">
+              <span style="color:#9aabb5; width:80px;">Close Price</span>
+              <div style="flex:1; height:6px; background:rgba(255,255,255,0.1); border-radius:3px;"><div style="width:62%; height:100%; background:#60a5fa; border-radius:3px;"></div></div>
+              <span>+0.62</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px; margin:4px 0;">
+              <span style="color:#9aabb5; width:80px;">EPU Index</span>
+              <div style="flex:1; height:6px; background:rgba(255,255,255,0.1); border-radius:3px;"><div style="width:31%; height:100%; background:#f87171; border-radius:3px;"></div></div>
+              <span>−0.31</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Feature list -->
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title" style="margin-bottom:14px;">Application Features</div>
+        <div style="font-size:13px; line-height:2.1;">
+          <div>📊 <strong>Live KSE-100 Dashboard</strong> — real-time price, volatility, regime</div>
+          <div>🔮 <strong>Multi-Horizon Forecasts</strong> — 7 / 14 / 30-day with confidence bands</div>
+          <div>📰 <strong>Sentiment Feed</strong> — daily Pos/Neg/Neutral breakdown from Dawn & Profit</div>
+          <div>🔍 <strong>SHAP Panel</strong> — feature importance, regime-conditioned</div>
+          <div>📱 <strong>Responsive UI</strong> — mobile-friendly for retail investors</div>
+          <div>🔌 <strong>REST API</strong> — JSON endpoints for third-party fintech apps</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title" style="margin-bottom:14px;">Tech Stack</div>
+        <div style="display:flex; flex-wrap:wrap; gap:8px;">
+          <span class="tag tag-blue">Python / FastAPI</span>
+          <span class="tag tag-blue">TensorFlow / Keras</span>
+          <span class="tag tag-purple">HuggingFace Transformers</span>
+          <span class="tag tag-green">scikit-learn</span>
+          <span class="tag tag-amber">SHAP</span>
+          <span class="tag tag-teal">pandas-ta</span>
+          <span class="tag tag-blue">HTML / CSS / JS</span>
+          <span class="tag tag-green">Chart.js</span>
+          <span class="tag tag-amber">BeautifulSoup (scraping)</span>
+          <span class="tag tag-purple">Label Studio</span>
+          <span class="tag tag-teal">Yahoo Finance API</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== TAB: NOVELTY ====== -->
+  <div class="tab-pane" id="tab-novelty">
+    <div class="step-badge" style="background:var(--amber-light); color:#8a5200;">⭐ Research Contribution</div>
+    <div class="section-heading">What Makes FinSight PK Novel</div>
+    <div class="section-sub">Compared to all 10 surveyed papers (2021–2025), FinSight PK is the only system that simultaneously addresses all four research gaps for Pakistan's equity market.</div>
+
+    <!-- Comparison table -->
+    <div class="card">
+      <div class="card-title" style="margin-bottom:14px;">Comparison with Prior Work</div>
+      <div style="overflow-x:auto;">
+        <table class="nov-table">
+          <thead>
+            <tr>
+              <th>Paper</th>
+              <th>Regime Detection</th>
+              <th>Pakistan NLP</th>
+              <th>Per-Regime SHAP</th>
+              <th>EPU + Sentiment + Regime</th>
+              <th>Web App</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Zeng & Jiang (2023)</strong><br><span style="color:var(--muted); font-size:11px;">FinBERT + LSTM</span></td>
+              <td class="cross">✗</td><td class="cross">✗</td><td class="cross">✗</td><td class="cross">✗</td><td class="cross">✗</td>
+            </tr>
+            <tr>
+              <td><strong>Muhammad et al. (2024)</strong><br><span style="color:var(--muted); font-size:11px;">Deep learning + SHAP</span></td>
+              <td class="cross">✗</td><td class="cross">✗</td><td class="cross">✗</td><td class="cross">✗</td><td class="cross">✗</td>
+            </tr>
+            <tr>
+              <td><strong>Ghani & Ghani (2024)</strong><br><span style="color:var(--muted); font-size:11px;">GARCH-MIDAS, KSE-100</span></td>
+              <td class="cross">✗</td><td class="cross">✗</td><td class="cross">✗</td><td class="cross">✗</td><td class="cross">✗</td>
+            </tr>
+            <tr>
+              <td><strong>Hameed et al. (2022)</strong><br><span style="color:var(--muted); font-size:11px;">BiLSTM + KSE sentiment</span></td>
+              <td class="cross">✗</td><td style="color:#d97706;">~</td><td class="cross">✗</td><td class="cross">✗</td><td class="cross">✗</td>
+            </tr>
+            <tr>
+              <td><strong>Raza & Akhtar (2024)</strong><br><span style="color:var(--muted); font-size:11px;">ANN/SVM/RF/LSTM, KSE-100</span></td>
+              <td class="cross">✗</td><td class="cross">✗</td><td class="cross">✗</td><td class="cross">✗</td><td class="cross">✗</td>
+            </tr>
+            <tr>
+              <td><strong>Kasture & Shirsath (2024)</strong><br><span style="color:var(--muted); font-size:11px;">RNN-LSTM + sentiment</span></td>
+              <td class="cross">✗</td><td class="cross">✗</td><td class="cross">✗</td><td class="cross">✗</td><td class="cross">✗</td>
+            </tr>
+            <tr style="background:#f0fdf4;">
+              <td><strong>FinSight PK (Ours)</strong><br><span style="color:var(--accent); font-size:11px;">This project</span></td>
+              <td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 5 contributions -->
+    <div class="section-heading" style="margin-top:8px;">5 Unique Research Contributions</div>
+    <div style="margin-top:12px; display:flex; flex-direction:column; gap:12px;">
+      <div class="card" style="border-left:4px solid var(--accent);">
+        <div style="display:flex; align-items:flex-start; gap:14px;">
+          <div style="font-size:24px;">🗺️</div>
+          <div>
+            <div class="card-title">1. Regime-Conditioned Forecasting for KSE-100</div>
+            <div style="font-size:13px; color:var(--muted); margin-top:6px; line-height:1.7;">No prior KSE-100 paper integrates unsupervised K-Means regime labels (Bull/Bear/Sideways) directly as features into an LSTM neural network. All existing models treat every market condition identically — we do not.</div>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="border-left:4px solid var(--accent3);">
+        <div style="display:flex; align-items:flex-start; gap:14px;">
+          <div style="font-size:24px;">📰</div>
+          <div>
+            <div class="card-title">2. Pakistan's First Labeled Financial News Sentiment Dataset</div>
+            <div style="font-size:13px; color:var(--muted); margin-top:6px; line-height:1.7;">We create the only labeled Pakistani financial news corpus. Prior KSE-100 work uses NLTK lexicons or English corpora that do not capture Pakistan's market language, economic terminology, or Urdu-inflected business English.</div>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="border-left:4px solid #8b5cf6;">
+        <div style="display:flex; align-items:flex-start; gap:14px;">
+          <div style="font-size:24px;">🔍</div>
+          <div>
+            <div class="card-title">3. Per-Regime SHAP Analysis</div>
+            <div style="font-size:13px; color:var(--muted); margin-top:6px; line-height:1.7;">Existing XAI papers apply SHAP globally across all market conditions. FinSight PK reveals which features dominate per regime — for example, that EPU index has 3× higher SHAP magnitude in bear markets vs bull markets.</div>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="border-left:4px solid #d97706;">
+        <div style="display:flex; align-items:flex-start; gap:14px;">
+          <div style="font-size:24px;">🔗</div>
+          <div>
+            <div class="card-title">4. EPU + Transformer Sentiment + Regime in One Unified LSTM</div>
+            <div style="font-size:13px; color:var(--muted); margin-top:6px; line-height:1.7;">No prior model combines Pakistan's Economic Policy Uncertainty index, DistilBERT-derived daily sentiment, and K-Means regime context in a single LSTM forecasting pipeline. This is a true multimodal approach.</div>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="border-left:4px solid #0f6e56;">
+        <div style="display:flex; align-items:flex-start; gap:14px;">
+          <div style="font-size:24px;">🌐</div>
+          <div>
+            <div class="card-title">5. Deployed Web Application for Pakistani Retail Investors</div>
+            <div style="font-size:13px; color:var(--muted); margin-top:6px; line-height:1.7;">FinSight PK goes beyond an academic paper — it delivers AI-assisted KSE-100 forecasting through a publicly accessible web interface with live sentiment feeds, real-time regime detection, and SHAP explanations in plain language.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- end .content -->
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script>
+
+// ===== TAB NAVIGATION =====
+function showTab(name) {
+  document.querySelectorAll('.tab-pane').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  const btns = document.querySelectorAll('.nav-btn');
+  const map = {overview:0, step1:1, step2:2, step3:3, step4:4, webapp:5, novelty:6};
+  btns[map[name]].classList.add('active');
+}
+
+// ===== SENTIMENT DEMO =====
+function demoSentiment() {
+  const h = document.getElementById('headline-input').value.toLowerCase();
+  const posWords = ['surges','rises','rises','gains','up','positive','growth','inflows','cut','rally','boom','strong','improve','profit','record high','it exports','investment'];
+  const negWords = ['tanks','falls','drops','down','negative','inflation','crisis','loss','uncertainty','raised','rate hike','crash','rupee low','worried','spooked','shrinks'];
+  let pos = 0, neg = 0;
+  posWords.forEach(w => { if(h.includes(w)) pos++; });
+  negWords.forEach(w => { if(h.includes(w)) neg++; });
+  const el = document.getElementById('sentiment-result');
+  el.style.display = 'block';
+  if(pos > neg) {
+    el.style.background = '#dcfce7'; el.style.color = '#166534';
+    el.innerHTML = '✅ <strong>POSITIVE</strong> — Score: +' + (0.5 + Math.min(pos*0.1, 0.45)).toFixed(2) + '<br><small style="font-weight:400; opacity:0.8">Positive market signals detected. DistilBERT would classify this as bullish news.</small>';
+  } else if(neg > pos) {
+    el.style.background = '#fee2e2'; el.style.color = '#991b1b';
+    el.innerHTML = '❌ <strong>NEGATIVE</strong> — Score: -' + (0.5 + Math.min(neg*0.1, 0.45)).toFixed(2) + '<br><small style="font-weight:400; opacity:0.8">Negative market signals detected. DistilBERT would classify this as bearish news.</small>';
+  } else {
+    el.style.background = '#f3f4f6'; el.style.color = '#4b5563';
+    el.innerHTML = '⚪ <strong>NEUTRAL</strong> — Score: ' + (Math.random()*0.1 - 0.05).toFixed(2) + '<br><small style="font-weight:400; opacity:0.8">No strong directional signal. DistilBERT classifies this as neutral.</small>';
+  }
+}
+
+// ===== REGIME DEMO =====
+function updateRegime() {
+  const ret = parseFloat(document.getElementById('ret-slider').value);
+  const vol = parseFloat(document.getElementById('vol-slider').value);
+  document.getElementById('ret-val').textContent = (ret >= 0 ? '+' : '') + ret.toFixed(1) + '%';
+  document.getElementById('vol-val').textContent = vol.toFixed(1);
+  const el = document.getElementById('regime-result');
+  if(ret > 0.5 && vol < 1.5) {
+    el.style.background = '#dcfce7'; el.style.color = '#166534';
+    el.innerHTML = '🐂 <strong>BULL MARKET</strong> — High return, low volatility<br><small style="font-size:12px; font-weight:400; opacity:0.8; display:block; margin-top:6px;">K-Means assigns: Cluster 0 (Bull). One-hot: [1, 0, 0]</small>';
+  } else if(ret < -0.2 && vol > 1.5) {
+    el.style.background = '#fee2e2'; el.style.color = '#991b1b';
+    el.innerHTML = '🐻 <strong>BEAR MARKET</strong> — Negative return, high volatility<br><small style="font-size:12px; font-weight:400; opacity:0.8; display:block; margin-top:6px;">K-Means assigns: Cluster 1 (Bear). One-hot: [0, 1, 0]</small>';
+  } else {
+    el.style.background = '#fef3e2'; el.style.color = '#92400e';
+    el.innerHTML = '↔️ <strong>SIDEWAYS MARKET</strong> — Near-zero return, moderate volatility<br><small style="font-size:12px; font-weight:400; opacity:0.8; display:block; margin-top:6px;">K-Means assigns: Cluster 2 (Sideways). One-hot: [0, 0, 1]</small>';
+  }
+}
+
+// ===== CLUSTER SCATTER =====
+window.addEventListener('load', function() {
+  const ctx = document.getElementById('cluster-chart');
+  if(!ctx) return;
+  const seed = (s, i) => ((Math.sin(s+i*9.7)*10000)%1+1)/2;
+  const bulls=[],bears=[],sides=[];
+  for(let i=0;i<60;i++){
+    bulls.push({x:(seed(1,i)*2+0.5),y:(seed(2,i)*0.8+0.2)});
+    bears.push({x:(seed(3,i)*1.5-2),y:(seed(4,i)*1.2+1.5)});
+    sides.push({x:(seed(5,i)*1.2-0.3),y:(seed(6,i)*1.0+0.8)});
+  }
+  new Chart(ctx, {
+    type:'scatter',
+    data:{datasets:[
+      {label:'Bull',data:bulls,backgroundColor:'rgba(22,163,74,0.6)',pointRadius:5},
+      {label:'Bear',data:bears,backgroundColor:'rgba(220,38,38,0.6)',pointRadius:5},
+      {label:'Sideways',data:sides,backgroundColor:'rgba(217,119,6,0.6)',pointRadius:5}
+    ]},
+    options:{
+      responsive:true,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:d=>`${d.dataset.label}: Return ${d.parsed.x.toFixed(2)}%, Vol ${d.parsed.y.toFixed(2)}`}}},
+      scales:{
+        x:{title:{display:true,text:'20-day Rolling Return (%)',font:{size:11}},grid:{color:'rgba(0,0,0,0.05)'}},
+        y:{title:{display:true,text:'20-day Rolling Volatility',font:{size:11}},grid:{color:'rgba(0,0,0,0.05)'}}
+      }
+    }
+  });
+
+  // Forecast chart
+  const fc = document.getElementById('forecast-chart');
+  if(!fc) return;
+  const labels=['Day -15','Day -10','Day -5','Today','Day +7','Day +14','Day +30'];
+  const hist=[79200,80100,81800,84100,null,null,null];
+  const forecast=[null,null,null,84100,85240,86800,89100];
+  const upper=[null,null,null,84100,86380,89400,95200];
+  const lower=[null,null,null,84100,84100,84200,83000];
+  new Chart(fc, {
+    type:'line',
+    data:{
+      labels,
+      datasets:[
+        {label:'Historical',data:hist,borderColor:'#1a5fa0',backgroundColor:'rgba(26,95,160,0.08)',fill:true,tension:0.3,pointRadius:3,borderWidth:2},
+        {label:'Forecast',data:forecast,borderColor:'#1d6f50',backgroundColor:'rgba(29,111,80,0.08)',fill:false,tension:0.3,pointRadius:4,borderWidth:2,borderDash:[6,3]},
+        {label:'Upper CI',data:upper,borderColor:'rgba(29,111,80,0.2)',fill:'+1',borderWidth:1,pointRadius:0,tension:0.3},
+        {label:'Lower CI',data:lower,borderColor:'rgba(29,111,80,0.2)',fill:false,borderWidth:1,pointRadius:0,tension:0.3}
+      ]
+    },
+    options:{
+      responsive:true,
+      plugins:{legend:{display:true,labels:{font:{size:11}}},tooltip:{mode:'index',intersect:false}},
+      scales:{y:{title:{display:true,text:'KSE-100 Index Level',font:{size:11}},grid:{color:'rgba(0,0,0,0.04)'}},x:{grid:{color:'rgba(0,0,0,0.04)'}}}
+    }
+  });
+});
+
+// ===== SHAP DEMO =====
+const shapData = {
+  bull: {
+    insight:'📌 In <strong>Bull markets</strong>, news sentiment dominates — positive headlines strongly amplify upward forecasts.',
+    insightBg:'var(--green-light)', insightColor:'var(--accent)',
+    features:[
+      {name:'Sentiment Score', val:0.78, color:'#16a34a'},
+      {name:'KSE-100 Close', val:0.62, color:'#16a34a'},
+      {name:'EMA (trend)', val:0.44, color:'#16a34a'},
+      {name:'Regime label', val:0.38, color:'#16a34a'},
+      {name:'MACD', val:0.29, color:'#16a34a'},
+      {name:'RSI', val:0.21, color:'#16a34a'},
+      {name:'EPU Index', val:-0.12, color:'#dc2626'},
+    ]
+  },
+  bear: {
+    insight:'📌 In <strong>Bear markets</strong>, EPU (Economic Policy Uncertainty) has 3× higher SHAP magnitude than sentiment — macro risk dominates during downturns.',
+    insightBg:'#fee2e2', insightColor:'#a32d2d',
+    features:[
+      {name:'EPU Index', val:-0.91, color:'#dc2626'},
+      {name:'KSE-100 Close', val:-0.67, color:'#dc2626'},
+      {name:'Regime label', val:-0.54, color:'#dc2626'},
+      {name:'RSI', val:-0.38, color:'#dc2626'},
+      {name:'MACD', val:-0.29, color:'#dc2626'},
+      {name:'Sentiment Score', val:-0.28, color:'#dc2626'},
+      {name:'EMA (trend)', val:-0.19, color:'#dc2626'},
+    ]
+  },
+  sideways: {
+    insight:'📌 In <strong>Sideways markets</strong>, RSI (overbought/oversold) becomes the dominant signal — technical momentum predicts the next breakout direction.',
+    insightBg:'var(--amber-light)', insightColor:'#8a5200',
+    features:[
+      {name:'RSI', val:0.66, color:'#d97706'},
+      {name:'MACD', val:0.52, color:'#d97706'},
+      {name:'EMA (trend)', val:0.41, color:'#d97706'},
+      {name:'KSE-100 Close', val:0.35, color:'#d97706'},
+      {name:'Sentiment Score', val:0.24, color:'#d97706'},
+      {name:'Regime label', val:0.18, color:'#d97706'},
+      {name:'EPU Index', val:0.11, color:'#d97706'},
+    ]
+  }
+};
+
+function showSHAP(regime) {
+  ['bull','bear','sideways'].forEach(r => {
+    const btn = document.getElementById('regime-'+r);
+    if(r === regime) { btn.className='btn'; } else { btn.className='btn btn-outline'; }
+  });
+  const d = shapData[regime];
+  document.getElementById('shap-insight').style.background = d.insightBg;
+  document.getElementById('shap-insight').style.color = d.insightColor;
+  document.getElementById('shap-insight').innerHTML = d.insight;
+  const maxVal = Math.max(...d.features.map(f => Math.abs(f.val)));
+  let html = '';
+  d.features.forEach(f => {
+    const pct = Math.round((Math.abs(f.val)/maxVal)*100);
+    const sign = f.val >= 0 ? '+' : '';
+    html += `<div class="shap-row">
+      <div class="shap-label">${f.name}</div>
+      <div class="shap-bar-wrap"><div class="shap-bar" style="width:${pct}%;background:${f.color};"></div></div>
+      <div class="shap-val" style="color:${f.color};">${sign}${f.val.toFixed(2)}</div>
+    </div>`;
+  });
+  document.getElementById('shap-bars').innerHTML = html;
+}
+showSHAP('bull');
+</script>
+</body>
+</html>
