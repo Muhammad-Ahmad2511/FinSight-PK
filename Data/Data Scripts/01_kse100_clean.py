@@ -9,7 +9,7 @@ import pandas as pd
 import os
 from datetime import date
 
-START_DATE = "2025-01-01"
+START_DATE = "2014-09-01"
 END_DATE = date.today().strftime("%Y-%m-%d")  # today, dynamic
 
 RAW_FILE = "Karachi 100 Historical Data.csv"
