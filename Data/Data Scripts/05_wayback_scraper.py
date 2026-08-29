@@ -3,11 +3,19 @@ from bs4 import BeautifulSoup
 from datetime import date, timedelta
 import pandas as pd
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 BASE_URL = "https://www.dawn.com/business"
 
-START_DATE = date(2025, 1, 1)
-END_DATE = date(2026, 8, 12)
+START_DATE = date(2015, 1, 1)
+END_DATE = date(2026, 8, 18)
+
+OUTPUT_CSV = "dawn_business_2015_to_2026.csv"
+
+MAX_WORKERS = 12          # concurrent requests
+REQUEST_TIMEOUT = 30
+RETRIES = 2
 
 HEADERS = {
     "User-Agent": (
@@ -17,28 +25,39 @@ HEADERS = {
     )
 }
 
+# Thread-local session so each worker thread reuses its own TCP connection
+_thread_local = threading.local()
+
+
+def get_session():
+    if not hasattr(_thread_local, "session"):
+        s = requests.Session()
+        s.headers.update(HEADERS)
+        _thread_local.session = s
+    return _thread_local.session
+
 
 def scrape_day(day):
-
     url = f"{BASE_URL}/{day.strftime('%Y-%m-%d')}"
+    session = get_session()
 
-    response = requests.get(
-        url,
-        headers=HEADERS,
-        timeout=30
-    )
-
-    response.raise_for_status()
+    last_err = None
+    for attempt in range(RETRIES + 1):
+        try:
+            response = session.get(url, timeout=REQUEST_TIMEOUT)
+            response.raise_for_status()
+            break
+        except Exception as e:
+            last_err = e
+            time.sleep(1.5 * (attempt + 1))  # backoff only on failure
+    else:
+        raise last_err
 
     soup = BeautifulSoup(response.text, "html.parser")
 
     articles = []
-
-    # Each article is represented by an h2 heading/link
     for heading in soup.select("h2"):
-
         link = heading.find("a")
-
         if not link:
             continue
 
@@ -51,9 +70,7 @@ def scrape_day(day):
         if article_url.startswith("/"):
             article_url = "https://www.dawn.com" + article_url
 
-        # Find the text/time associated with the article
         parent = heading.parent
-
         text = parent.get_text(" ", strip=True)
 
         articles.append({
@@ -66,50 +83,92 @@ def scrape_day(day):
     return articles
 
 
-all_articles = []
+def month_chunks(start, end):
+    """Yield lists of dates, grouped by calendar month."""
+    chunk = []
+    current_month = (start.year, start.month)
+    d = start
+    while d <= end:
+        if (d.year, d.month) != current_month:
+            yield chunk
+            chunk = []
+            current_month = (d.year, d.month)
+        chunk.append(d)
+        d += timedelta(days=1)
+    if chunk:
+        yield chunk
 
-current_date = START_DATE
 
-while current_date <= END_DATE:
-
-    print(f"Scraping {current_date}...")
-
+def load_done_dates():
     try:
-        results = scrape_day(current_date)
-
-        print(f"  Found {len(results)} articles")
-
-        all_articles.extend(results)
-
-    except Exception as e:
-        print(f"  ERROR: {e}")
-
-    current_date += timedelta(days=1)
-
-    # Don't hammer Dawn
-    time.sleep(1)
+        existing = pd.read_csv(OUTPUT_CSV, usecols=["date"])
+        return set(existing["date"].unique())
+    except FileNotFoundError:
+        return set()
 
 
-df = pd.DataFrame(all_articles)
+def append_to_csv(df_chunk):
+    header = not _file_has_content(OUTPUT_CSV)
+    df_chunk.to_csv(OUTPUT_CSV, mode="a", index=False, header=header,
+                     encoding="utf-8-sig")
 
-# Remove duplicates
-df = df.drop_duplicates(subset=["url"])
 
-# Sort chronologically
-df = df.sort_values(
-    by=["date", "title"]
-)
+def _file_has_content(path):
+    try:
+        with open(path, "r", encoding="utf-8-sig") as f:
+            return bool(f.readline())
+    except FileNotFoundError:
+        return False
 
-df.to_csv(
-    "dawn_business_2025_to_2026.csv",
-    index=False,
-    encoding="utf-8-sig"
-)
 
-df.to_excel(
-    "dawn_business_2025_to_2026.xlsx",
-    index=False
-)
+def scrape_month(days_in_month, done_dates):
+    days_to_scrape = [d for d in days_in_month
+                       if d.strftime("%Y-%m-%d") not in done_dates]
 
-print("\nDONE")
-print("Total articles:", len(df))
+    if not days_to_scrape:
+        print(f"  Skipping {days_in_month[0].strftime('%Y-%m')} (already done)")
+        return []
+
+    month_results = []
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        future_to_day = {executor.submit(scrape_day, d): d for d in days_to_scrape}
+        for future in as_completed(future_to_day):
+            day = future_to_day[future]
+            try:
+                results = future.result()
+                month_results.extend(results)
+                print(f"  {day}: {len(results)} articles")
+            except Exception as e:
+                print(f"  {day}: ERROR - {e}")
+
+    return month_results
+
+
+def main():
+    done_dates = load_done_dates()
+    if done_dates:
+        print(f"Resuming — {len(done_dates)} dates already scraped in {OUTPUT_CSV}")
+
+    for chunk in month_chunks(START_DATE, END_DATE):
+        month_label = chunk[0].strftime("%Y-%m")
+        print(f"\n=== Month {month_label} ===")
+
+        results = scrape_month(chunk, done_dates)
+
+        if results:
+            df_chunk = pd.DataFrame(results)
+            df_chunk = df_chunk.drop_duplicates(subset=["url"])
+            append_to_csv(df_chunk)
+            # mark these dates as done so a rerun won't repeat them
+            done_dates.update(df_chunk["date"].unique())
+            print(f"  Saved {len(df_chunk)} rows -> {OUTPUT_CSV}")
+
+    print("\nDONE")
+    final = pd.read_csv(OUTPUT_CSV)
+    final = final.drop_duplicates(subset=["url"])
+    final.to_csv(OUTPUT_CSV, index=False, encoding="utf-8-sig")
+    print("Total articles:", len(final))
+
+
+if __name__ == "__main__":
+    main()
