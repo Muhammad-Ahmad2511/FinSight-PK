@@ -1,6 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 import pandas as pd
 import time
 import threading
@@ -13,7 +13,7 @@ END_DATE = date(2026, 8, 18)
 
 OUTPUT_CSV = "dawn_business_2015_to_2026.csv"
 
-MAX_WORKERS = 12          # concurrent requests
+MAX_WORKERS = 12
 REQUEST_TIMEOUT = 30
 RETRIES = 2
 
@@ -25,7 +25,6 @@ HEADERS = {
     )
 }
 
-# Thread-local session so each worker thread reuses its own TCP connection
 _thread_local = threading.local()
 
 
@@ -35,6 +34,21 @@ def get_session():
         s.headers.update(HEADERS)
         _thread_local.session = s
     return _thread_local.session
+
+
+def get_article_date(heading):
+    """Pull the real timestamp from the <time datetime="..."> tag that sits
+    next to this heading in the same article block."""
+    container = heading.find_parent("article") or heading.parent
+    if container is None:
+        return None
+    time_tag = container.find("time")
+    if not time_tag or not time_tag.get("datetime"):
+        return None
+    try:
+        return datetime.fromisoformat(time_tag["datetime"]).date()
+    except ValueError:
+        return None
 
 
 def scrape_day(day):
@@ -49,13 +63,14 @@ def scrape_day(day):
             break
         except Exception as e:
             last_err = e
-            time.sleep(1.5 * (attempt + 1))  # backoff only on failure
+            time.sleep(1.5 * (attempt + 1))
     else:
         raise last_err
 
     soup = BeautifulSoup(response.text, "html.parser")
 
     articles = []
+    discarded = 0
     for heading in soup.select("h2"):
         link = heading.find("a")
         if not link:
@@ -63,12 +78,16 @@ def scrape_day(day):
 
         title = link.get_text(" ", strip=True)
         article_url = link.get("href")
-
         if not title or not article_url:
             continue
 
         if article_url.startswith("/"):
             article_url = "https://www.dawn.com" + article_url
+
+        actual_date = get_article_date(heading)
+        if actual_date is None or actual_date != day:
+            discarded += 1
+            continue
 
         parent = heading.parent
         text = parent.get_text(" ", strip=True)
@@ -80,11 +99,13 @@ def scrape_day(day):
             "raw_text": text
         })
 
+    if discarded:
+        print(f"    -> discarded {discarded} mismatched/undated headings")
+
     return articles
 
 
 def month_chunks(start, end):
-    """Yield lists of dates, grouped by calendar month."""
     chunk = []
     current_month = (start.year, start.month)
     d = start
@@ -137,7 +158,7 @@ def scrape_month(days_in_month, done_dates):
             try:
                 results = future.result()
                 month_results.extend(results)
-                print(f"  {day}: {len(results)} articles")
+                print(f"  {day}: {len(results)} verified articles")
             except Exception as e:
                 print(f"  {day}: ERROR - {e}")
 
@@ -159,7 +180,6 @@ def main():
             df_chunk = pd.DataFrame(results)
             df_chunk = df_chunk.drop_duplicates(subset=["url"])
             append_to_csv(df_chunk)
-            # mark these dates as done so a rerun won't repeat them
             done_dates.update(df_chunk["date"].unique())
             print(f"  Saved {len(df_chunk)} rows -> {OUTPUT_CSV}")
 
