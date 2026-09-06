@@ -424,7 +424,7 @@ df['regex_label'] = [
 print(df['regex_label'].value_counts())
 
 # ============================================================
-# PART 2 — FinBERT (unchanged from v2)
+# PART 2 — FinBERT (UPDATED: Now runs on raw_text / lead paragraphs)
 # ============================================================
 
 if args.existing_finbert:
@@ -438,28 +438,32 @@ if args.existing_finbert:
     df['finbert_label'] = prev['finbert_label'].values
     df['finbert_confidence'] = prev['finbert_confidence'].values
 else:
-    print("\nLoading FinBERT...")
+    print("\nLoading FinBERT model onto GPU...")
     import torch
     from transformers import pipeline
 
     device = 0 if torch.cuda.is_available() else -1
-    print("Using GPU" if device == 0 else "Using CPU (this will be slower)")
+    print("Using GPU" if device == 0 else "Using CPU (Warning: CPU will be extremely slow for large datasets)")
 
     clf = pipeline("sentiment-analysis", model="ProsusAI/finbert",
-                    tokenizer="ProsusAI/finbert", device=device)
+                   tokenizer="ProsusAI/finbert", device=device)
 
-    headlines = df['title'].fillna('').tolist()
-    print(f"Running FinBERT on {len(headlines)} headlines (batched)...")
+    # UPDATED: Use raw_text (lead paragraph) instead of headline. Fallback to title if raw_text is missing.
+    paragraphs = df['raw_text'].fillna(df['title']).fillna('').tolist()
+    print(f"Running FinBERT on {len(paragraphs)} lead paragraphs (batched)...")
+    
     BATCH_SIZE = 32
     finbert_labels, finbert_scores = [], []
-    for i in range(0, len(headlines), BATCH_SIZE):
-        batch = headlines[i:i + BATCH_SIZE]
-        outputs = clf(batch, truncation=True, max_length=128)
+    for i in range(0, len(paragraphs), BATCH_SIZE):
+        batch = paragraphs[i:i + BATCH_SIZE]
+        # max_length increased to 256 for full lead paragraph context
+        outputs = clf(batch, truncation=True, max_length=256)
         for o in outputs:
             finbert_labels.append(o['label'].capitalize())
             finbert_scores.append(o['score'])
         if i % (BATCH_SIZE * 50) == 0:
-            print(f"  {i}/{len(headlines)}")
+            print(f"  Processed {i}/{len(paragraphs)} rows...")
+            
     df['finbert_label'] = finbert_labels
     df['finbert_confidence'] = finbert_scores
 
@@ -523,11 +527,17 @@ print(f"\nRows where both models had an opinion: {len(comparable)} / {len(df)}")
 print(f"Agreement rate on those rows: {comparable['regex_finbert_agree'].mean():.1%}")
 
 df['source'] = 'Dawn'
-out = df[['date', 'title', 'url', 'final_sentiment', 'source',
+
+# UPDATED: Included 'raw_text' in output columns
+out = df[['date', 'title', 'url', 'raw_text', 'final_sentiment', 'source',
           'regex_label', 'domain_score', 'generic_score', 'regex_reasons',
           'finbert_label', 'finbert_confidence', 'ensemble_method']].rename(columns={
-    'title': 'News', 'url': 'URL',
-    'final_sentiment': 'Sentiment', 'date': 'Date', 'source': 'Source'
+    'title': 'News', 
+    'url': 'URL',
+    'final_sentiment': 'Sentiment', 
+    'date': 'Date', 
+    'source': 'Source'
 })
+
 out.to_csv(args.output, index=False)
-print(f"\nSaved -> {args.output}")
+print(f"\nSaved final results to -> {args.output}")
