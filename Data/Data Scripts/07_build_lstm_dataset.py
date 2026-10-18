@@ -23,8 +23,9 @@ Targets (per horizon h):
 `split` is one of train / val / test / purge. Never sample from 'purge' rows.
 Convert a predicted log-return back with: Close[t] * exp(pred).
 
-Run: python 07_build_lstm_dataset.py
-Set the env var FYP_DATA_DIR to override DATA_DIR.
+Run (Colab): !python 07_build_lstm_dataset.py      (reads/writes /content)
+Run (local): python 07_build_lstm_dataset.py       (reads/writes the current folder)
+Set the env var FYP_DATA_DIR to override the folder.
 """
 import os
 import numpy as np
@@ -32,7 +33,9 @@ import pandas as pd
 from pathlib import Path
 
 # --- Config -- all files live flat in this one folder ---
-DATA_DIR = Path(os.environ.get("FYP_DATA_DIR", r"C:\Users\Win 1o pro\Downloads\fyp"))
+# Colab: upload the 3 input CSVs to /content (default). Local: set FYP_DATA_DIR or edit the fallback.
+_default = "/content" if Path("/content").exists() else "."
+DATA_DIR = Path(os.environ.get("FYP_DATA_DIR", _default))
 INPUT_KSE_REGIME = DATA_DIR / "kse100_with_regime.csv"        # already includes indicators
 INPUT_EPU = DATA_DIR / "pakistan_epu.csv"
 INPUT_NEWS = DATA_DIR / "dawn_business_2015_to_2026_labeled.csv"

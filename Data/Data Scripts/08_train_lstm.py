@@ -585,7 +585,7 @@ def make_plots(out, pred_df, ens_full, metrics_df, study):
 # ----------------------------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data_dir", default=os.environ.get("FYP_DATA_DIR", "."))
+    ap.add_argument("--data_dir", default=os.environ.get("FYP_DATA_DIR", "/content" if Path("/content").exists() else "."))
     ap.add_argument("--multi", default="kse100_lstm_multi.csv")
     ap.add_argument("--features", default="kse100_lstm_features.csv")
     ap.add_argument("--out", default=None)
