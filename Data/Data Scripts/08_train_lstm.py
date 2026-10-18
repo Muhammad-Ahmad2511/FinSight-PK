@@ -26,7 +26,7 @@ Pipeline
   7. Saves the final model + a latest 3/7/14-day forecast from the last rows of the features file.
 
 Requirements: torch numpy pandas scikit-learn optuna matplotlib
-Usage:
+Usage (Colab: just run the cell; per-config tuning, 150 trials and 10 seeds are the defaults):
   python 08_train_lstm.py                         # tune + train + evaluate (default 40 trials)
   python 08_train_lstm.py --trials 80 --seeds 5
   python 08_train_lstm.py --params lstm_outputs/best_params.json   # skip tuning
@@ -311,8 +311,8 @@ def mc_predict(model, W, M, device, bs=1024):
 # ----------------------------------------------------------------------------------------------
 # Hyper-parameter search
 # ----------------------------------------------------------------------------------------------
-def suggest(trial, window, tune_window):
-    return {
+def suggest(trial, window, tune_window, fixed_feats=False):
+    p = {
         "hidden": trial.suggest_categorical("hidden", [16, 32, 64, 128]),
         "n_layers": trial.suggest_int("n_layers", 1, 3),
         "dropout": trial.suggest_float("dropout", 0.1, 0.6),
@@ -322,11 +322,13 @@ def suggest(trial, window, tune_window):
         "batch_size": trial.suggest_categorical("batch_size", [32, 64, 128]),
         "loss": trial.suggest_categorical("loss", ["mse", "huber"]),
         "window": trial.suggest_categorical("window", [20, 30, 60]) if tune_window else window,
-        "feat_epu": trial.suggest_int("feat_epu", 0, 1),
-        "feat_sent": trial.suggest_int("feat_sent", 0, 2),          # 0 none, 1 core(3), 2 all(10)
-        "feat_regime": trial.suggest_int("feat_regime", 0, 1),
         "target_scale": trial.suggest_categorical("target_scale", ["none", "vol"]),
     }
+    if not fixed_feats:                                              # feature groups are searched only for MAIN
+        p["feat_epu"] = trial.suggest_int("feat_epu", 0, 1)
+        p["feat_sent"] = trial.suggest_int("feat_sent", 0, 2)        # 0 none, 1 core(3), 2 all(10)
+        p["feat_regime"] = trial.suggest_int("feat_regime", 0, 1)
+    return p
 
 
 def make_folds(data, window, n_folds, start=0.55):
@@ -370,46 +372,57 @@ def cv_loss(params, data, cols, folds, device, max_epochs, patience, seed, trial
     return float(np.mean(losses)), losses
 
 
-def tune(data, args, device, out):
-    import optuna
+def tune(data, args, device, out, name=None, n_trials=None):
+    """name=None: search feature groups too (model MAIN). name=<config>: fixed feature set, own search."""
+    try:
+        import optuna
+    except ImportError:                       # fresh Colab runtimes do not ship optuna
+        import subprocess, sys
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "optuna"])
+        import optuna
     optuna.logging.set_verbosity(optuna.logging.WARNING)
+    tag = name or "main"
+    n_trials = n_trials or args.trials
     folds = make_folds(data, args.window, args.folds)
-    for k, (tr, va) in enumerate(folds):
+    for k, (tr, va) in enumerate(folds if name is None else []):
         log(f"fold {k}: train {len(tr)} rows (to {data.df.Date[tr.max()].date()}), "
             f"val {len(va)} rows ({data.df.Date[va.min()].date()} -> {data.df.Date[va.max()].date()})")
 
     def objective(trial):
-        params = suggest(trial, args.window, args.tune_window)
+        params = suggest(trial, args.window, args.tune_window, fixed_feats=name is not None)
         if params["window"] != args.window:      # folds depend on the window length
             fo = make_folds(data, params["window"], args.folds)
         else:
             fo = folds
-        mean_loss, losses = cv_loss(params, data, cols_from_params(params), fo, device, args.tune_epochs, args.tune_patience,
+        cols = cols_from_params(params) if name is None else cols_for(name)
+        mean_loss, losses = cv_loss(params, data, cols, fo, device, args.tune_epochs, args.tune_patience,
                                     args.seed, trial)
         trial.set_user_attr("fold_losses", losses)
         return mean_loss
 
     study = optuna.create_study(
-        direction="minimize", study_name="finsight_lstm",
+        direction="minimize", study_name=f"finsight_lstm_{tag}",
         sampler=optuna.samplers.TPESampler(seed=args.seed, multivariate=True),
         pruner=optuna.pruners.MedianPruner(n_startup_trials=8, n_warmup_steps=0),
-        storage=f"sqlite:///{out / 'optuna_study.db'}", load_if_exists=True)
+        storage=f"sqlite:///{out / ('optuna_study.db' if name is None else f'optuna_{tag}.db')}",
+        load_if_exists=True)
 
     def cb(study, trial):
         v = f"{trial.value:.4f}" if trial.value is not None else "pruned"
-        log(f"trial {trial.number:3d}  {v}  best {study.best_value:.4f}" if study.best_trial else "")
+        log(f"[{tag}] trial {trial.number:3d}  {v}  best {study.best_value:.4f}" if study.best_trial else "")
 
     done = len([t for t in study.trials if t.state.is_finished()])
-    remaining = max(0, args.trials - done)
-    log(f"tuning: {remaining} trials to run ({done} already in study)")
+    remaining = max(0, n_trials - done)
+    log(f"tuning [{tag}]: {remaining} trials to run ({done} already in study)")
     if remaining:
         study.optimize(objective, n_trials=remaining, timeout=args.timeout, callbacks=[cb],
                        gc_after_trial=True)
     best = dict(study.best_trial.params)
     best.setdefault("window", args.window)
-    study.trials_dataframe().to_csv(out / "tuning_trials.csv", index=False)
-    json.dump(best, open(out / "best_params.json", "w"), indent=2)
-    log("best params:", json.dumps(best), f"| CV val MSE/drift-MSE {study.best_value:.4f}",
+    suffix = "" if name is None else "_" + tag
+    study.trials_dataframe().to_csv(out / f"tuning_trials{suffix}.csv", index=False)
+    json.dump(best, open(out / f"best_params{suffix}.json", "w"), indent=2)
+    log(f"[{tag}] best params:", json.dumps(best), f"| CV val MSE/drift-MSE {study.best_value:.4f}",
         "| fold losses", [round(x, 4) for x in study.best_trial.user_attrs["fold_losses"]])
     return best, study
 
@@ -491,6 +504,8 @@ def horizon_metrics(model_name, close_t, Y, mu):
 def dm_test(e1, e2, h):
     """Diebold-Mariano on squared errors with a Bartlett/Newey-West variance (lag h-1).
     stat < 0 => model 1 has lower loss than model 2."""
+    if np.max(np.abs(e1 - e2)) < 1e-5:          # identical forecasts (e.g. a collapsed model == drift): test undefined
+        return float("nan"), float("nan")
     d = e1 ** 2 - e2 ** 2
     T = len(d)
     dbar = d.mean()
@@ -583,18 +598,22 @@ def make_plots(out, pred_df, ens_full, metrics_df, study):
 # ----------------------------------------------------------------------------------------------
 # Main
 # ----------------------------------------------------------------------------------------------
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--data_dir", default=os.environ.get("FYP_DATA_DIR", "/content" if Path("/content").exists() else "."))
     ap.add_argument("--multi", default="kse100_lstm_multi.csv")
     ap.add_argument("--features", default="kse100_lstm_features.csv")
     ap.add_argument("--out", default=None)
     ap.add_argument("--params", default=None, help="json with hyper-parameters; skips tuning")
-    ap.add_argument("--trials", type=int, default=40)
+    ap.add_argument("--trials", type=int, default=150)
     ap.add_argument("--timeout", type=int, default=None, help="tuning time limit in seconds")
     ap.add_argument("--folds", type=int, default=3)
     ap.add_argument("--window", type=int, default=30)
     ap.add_argument("--tune_window", action="store_true", help="also search window in {20,30,60}")
+    ap.add_argument("--tune_each", action="store_true", help="(default ON) tune every ablation feature set separately")
+    ap.add_argument("--no_tune_each", action="store_true", help="reuse the main model's hyperparameters for all ablations")
+    ap.add_argument("--trials_each", type=int, default=60, help="trials per ablation config with --tune_each")
+    ap.add_argument("--params_each", default=None, help="json {config: params} from a previous --tune_each run")
     ap.add_argument("--no_shrink", action="store_true", help="skip validation-fitted shrinkage toward drift")
     ap.add_argument("--seeds", type=int, default=10, help="ensemble members per model")
     ap.add_argument("--seed", type=int, default=42)
@@ -607,9 +626,10 @@ def main():
     ap.add_argument("--no_ablation", action="store_true")
     ap.add_argument("--device", default="auto")
     ap.add_argument("--quick", action="store_true", help="tiny smoke test")
-    args = ap.parse_args()
+    args, _unknown = ap.parse_known_args(argv)     # ignores Jupyter/Colab's own -f kernel argument
+    args.tune_each = not args.no_tune_each          # per-config tuning is ON unless --no_tune_each is passed
     if args.quick:
-        args.trials, args.folds, args.seeds, args.mc = 4, 2, 2, 20
+        args.trials, args.folds, args.seeds, args.mc, args.trials_each = 4, 2, 2, 20, 2
         args.tune_epochs, args.max_epochs, args.patience, args.tune_patience = 8, 15, 5, 4
 
     warnings.filterwarnings("ignore", category=UserWarning)
@@ -640,9 +660,24 @@ def main():
     seeds = [args.seed + i for i in range(args.seeds)]
     names = [MAIN] if args.no_ablation else [MAIN] + list(CONFIGS)
     log("selected features:", cols_from_params(params))
+    params_by = {n: params for n in names}
+    if args.tune_each and not args.no_ablation:
+        assert not args.tune_window, "--tune_each requires a fixed window"
+        if args.params_each:
+            loaded = json.load(open(args.params_each))
+            for n in CONFIGS:
+                params_by[n] = {**loaded[n], "window": window}
+        else:
+            for n in CONFIGS:
+                pn, _ = tune(data, args, device, out, name=n, n_trials=args.trials_each)
+                params_by[n] = pn
+            json.dump({n: params_by[n] for n in CONFIGS}, open(out / "best_params_each.json", "w"), indent=2)
+        log("per-config hyperparameters:", {n: {k: (round(v, 4) if isinstance(v, float) else v) for k, v in params_by[n].items()
+                                                 if k in ("hidden", "n_layers", "dropout", "lr", "weight_decay", "loss", "target_scale")}
+                                            for n in CONFIGS})
     ens = {}
     for n in names:
-        ens[n] = fit_ensemble(n, params, data, seeds, device, args.max_epochs, args.patience, args.mc)
+        ens[n] = fit_ensemble(n, params_by[n], data, seeds, device, args.max_epochs, args.patience, args.mc)
 
     # ---- 3. predictions (val for calibration, test for evaluation) ----
     va, te = data.rows(["val"], window), data.rows(["test"], window)
@@ -671,6 +706,10 @@ def main():
         mc_test[n] = drift + shrink[n] * (mc_test[n] - drift)
         mu_test[n] = mc_test[n].mean(0)
     pd.DataFrame(spread).to_csv(out / "seed_spread.csv", index=False)
+    for n in ens:
+        if np.all(mu_raw[n].std(0) < 1e-4):
+            log(f"WARNING [{n}]: forecasts are constant (model collapsed to the drift forecast); "
+                f"its ablation result is NOT informative. Use --tune_each.")
     log("shrinkage factors (1 = no shrink):", {n: np.round(v, 2).tolist() for n, v in shrink.items() if n in (MAIN, "full")})
 
     # ---- 4. baselines ----
@@ -722,19 +761,33 @@ def main():
 
     # ---- 6. ablation significance + per-regime errors ----
     if len(ens) > 1:
+        def holm(pv):
+            order = np.argsort(pv)
+            adj = np.empty(len(pv))
+            run = 0.0
+            for rank, i in enumerate(order):
+                run = max(run, (len(pv) - rank) * pv[i])
+                adj[i] = min(1.0, run)
+            return adj
+
+        pairs = [(n, b, "vs_baseline") for n in ens for b in ("random_walk", "train_drift")]
+        pairs += [(a, "price_only", "contrast") for a in ens if a != "price_only"]
+        pairs += [("full", "tuned", "contrast"), ("price+sentiment", "price+regime", "contrast")]
         dm_rows = []
-        pairs = [(MAIN, "price_only"), (MAIN, "full"), (MAIN, "train_drift"), (MAIN, "random_walk"),
-                 ("price_only", "random_walk"), ("full", "price_only"), ("full", "random_walk")]
-        for a, b in pairs:
+        for a, b, fam in pairs:
             for j, h in enumerate(HORIZONS):
                 e1 = mu_test[a][:, j] - Y_te[:, j]
                 e2 = (baselines[b][:, j] if b in baselines else mu_test[b][:, j]) - Y_te[:, j]
                 stat, p = dm_test(e1, e2, h)
-                dm_rows.append({"model_1": a, "model_2": b, "horizon": h, "DM_stat": stat, "p_value": p,
-                                "better": a if stat < 0 else b})
+                dm_rows.append({"family": fam, "model_1": a, "model_2": b, "horizon": h, "DM_stat": stat,
+                                "p_value": p, "better": a if stat < 0 else b})
         dm = pd.DataFrame(dm_rows)
+        dm["p_holm"] = np.nan
+        for fam in dm.family.unique():                      # Holm correction within each family of tests
+            m = (dm.family == fam) & dm.p_value.notna()
+            dm.loc[m, "p_holm"] = holm(dm.loc[m, "p_value"].values)
         dm.to_csv(out / "dm_tests.csv", index=False)
-        log("Diebold-Mariano (stat<0 => model_1 lower squared error)")
+        log("Diebold-Mariano (stat<0 => model_1 lower squared error; p_holm corrects for multiple tests per family)")
         print(dm.round(4).to_string(index=False))
 
         reg = np.select([df.Regime_Bull.values[te] == 1, df.Regime_Bear.values[te] == 1], ["bull", "bear"], "sideways")
