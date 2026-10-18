@@ -9,7 +9,9 @@ Pipeline
      counts -> log1p, EPU -> log. Raw Close is NOT a feature (it is non-stationary: 27k -> 189k).
   2. Targets: log(Close[t+h]/Close[t]) for h = 3, 7, 14, standardised with train statistics.
   3. Hyper-parameter search: Optuna (TPE + median pruning) over architecture, dropout, learning rate,
-     weight decay, batch size and loss. Objective = mean validation MSE over EXPANDING-WINDOW time-series
+     weight decay, batch size, loss, FEATURE GROUPS (EPU on/off, sentiment none/core/all, regime on/off)
+     and TARGET SCALING (raw log-return vs log-return divided by recent volatility * sqrt(h)). Objective = validation MSE relative to the train-mean-drift forecast
+     (below 1 beats drift), in raw log-return units, averaged over horizons and over EXPANDING-WINDOW time-series
      folds taken from the pre-test period, with a purge gap of max(h) rows between train and validation,
      and scalers refit on each fold's training rows. The test set is never touched during tuning.
   4. Final model: seed ensemble trained on the 'train' split, early-stopped on 'val'.
@@ -61,6 +63,7 @@ GROUPS = {
     "sentiment": ["sentiment_mean", "sentiment_sum", "log_articles", "log_pos", "log_neg", "log_neu",
                   "confidence_mean", "has_news", "sent_3d", "sent_7d"],
     "regime": ["regime_bear", "regime_bull", "regime_sideways"],
+    "sent_core": ["sentiment_mean", "log_articles", "sent_7d"],
 }
 BINARY = {"has_news", "regime_bear", "regime_bull", "regime_sideways"}   # not standardised
 CONFIGS = {
@@ -107,7 +110,19 @@ def make_features(df):
     return f
 
 
-def cols_for(config):
+def cols_from_params(params):
+    g = ["tech"]
+    if params.get("feat_epu", 1):
+        g.append("epu")
+    g += {0: [], 1: ["sent_core"], 2: ["sentiment"]}[params.get("feat_sent", 2)]
+    if params.get("feat_regime", 1):
+        g.append("regime")
+    return [c for x in g for c in GROUPS[x]]
+
+
+def cols_for(config, params=None):
+    if config == "tuned":
+        return cols_from_params(params)
     return [c for g in CONFIGS[config] for c in GROUPS[g]]
 
 
@@ -146,9 +161,15 @@ class Data:
         assert not self.feats.isna().any().any(), "NaNs in features"
         self.Y = df[[f"target_logret_h{h}" for h in HORIZONS]].values.astype(np.float64)
         self.close = df["Close"].values.astype(np.float64)
+        self.vscale = (np.maximum(df["Roll_Vol_20"].values, 1e-3)[:, None]
+                       * np.sqrt(np.array(HORIZONS, dtype=float))[None, :])      # past-only volatility scale
+        self.ones = np.ones_like(self.vscale)
         self.split = df["split"].values
         self.n = len(df)
         self.idx = np.arange(self.n)
+
+    def vs(self, params):
+        return self.vscale if params.get("target_scale", "none") == "vol" else self.ones
 
     def rows(self, names, window):
         elig = self.idx >= window - 1
@@ -266,6 +287,13 @@ def train_model(params, Wtr, Ytr, Wva, Yva, seed, device, max_epochs, patience):
 
 
 @torch.no_grad()
+def point_predict(model, W, device, bs=1024):
+    model.eval()
+    Wt = torch.as_tensor(W, device=device)
+    return torch.cat([model(Wt[i:i + bs]) for i in range(0, len(Wt), bs)]).cpu().numpy()
+
+
+@torch.no_grad()
 def mc_predict(model, W, M, device, bs=1024):
     """Dropout active at inference. Returns (M, N, H) in standardised-target units."""
     model.eval()
@@ -285,15 +313,19 @@ def mc_predict(model, W, M, device, bs=1024):
 # ----------------------------------------------------------------------------------------------
 def suggest(trial, window, tune_window):
     return {
-        "hidden": trial.suggest_categorical("hidden", [32, 64, 128, 256]),
+        "hidden": trial.suggest_categorical("hidden", [16, 32, 64, 128]),
         "n_layers": trial.suggest_int("n_layers", 1, 3),
-        "dropout": trial.suggest_float("dropout", 0.1, 0.5),
+        "dropout": trial.suggest_float("dropout", 0.1, 0.6),
         "head_dim": trial.suggest_categorical("head_dim", [16, 32, 64]),
         "lr": trial.suggest_float("lr", 1e-4, 3e-3, log=True),
-        "weight_decay": trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True),
+        "weight_decay": trial.suggest_float("weight_decay", 1e-5, 1e-1, log=True),
         "batch_size": trial.suggest_categorical("batch_size", [32, 64, 128]),
         "loss": trial.suggest_categorical("loss", ["mse", "huber"]),
         "window": trial.suggest_categorical("window", [20, 30, 60]) if tune_window else window,
+        "feat_epu": trial.suggest_int("feat_epu", 0, 1),
+        "feat_sent": trial.suggest_int("feat_sent", 0, 2),          # 0 none, 1 core(3), 2 all(10)
+        "feat_regime": trial.suggest_int("feat_regime", 0, 1),
+        "target_scale": trial.suggest_categorical("target_scale", ["none", "vol"]),
     }
 
 
@@ -311,19 +343,26 @@ def make_folds(data, window, n_folds, start=0.55):
 
 
 def cv_loss(params, data, cols, folds, device, max_epochs, patience, seed, trial=None):
+    """Mean over folds of  MSE(model) / MSE(train-mean drift)  in raw log-return units, averaged over
+    horizons. Comparable across feature sets and target scalings; < 1 means the model beats drift."""
     import optuna
     window = params["window"]
+    vs = data.vs(params)
     losses = []
     for k, (tr, va) in enumerate(folds):
         fit_rows = data.idx[data.idx <= tr.max()]
         Xs, _ = scale_features(data.feats, cols, fit_rows)
         Wall = all_windows(Xs, window)
-        ym, ys = data.Y[tr].mean(0), data.Y[tr].std(0)
-        Ytr = (data.Y[tr] - ym) / ys
-        Yva = (data.Y[va] - ym) / ys
-        _, best, _, _ = train_model(params, take(Wall, tr, window), Ytr, take(Wall, va, window), Yva,
-                                    seed, device, max_epochs, patience)
-        losses.append(best)
+        Ye = data.Y / vs
+        ym, ys = Ye[tr].mean(0), Ye[tr].std(0)
+        Ytr, Yva = (Ye[tr] - ym) / ys, (Ye[va] - ym) / ys
+        Wva = take(Wall, va, window)
+        model, _, _, _ = train_model(params, take(Wall, tr, window), Ytr, Wva, Yva,
+                                     seed, device, max_epochs, patience)
+        p = (point_predict(model, Wva, device) * ys + ym) * vs[va]
+        drift = data.Y[tr].mean(0)
+        ratio = np.mean(np.mean((p - data.Y[va]) ** 2, 0) / np.mean((drift - data.Y[va]) ** 2, 0))
+        losses.append(float(ratio))
         if trial is not None:
             trial.report(float(np.mean(losses)), step=k)
             if trial.should_prune():
@@ -334,7 +373,6 @@ def cv_loss(params, data, cols, folds, device, max_epochs, patience, seed, trial
 def tune(data, args, device, out):
     import optuna
     optuna.logging.set_verbosity(optuna.logging.WARNING)
-    cols = cols_for("full")
     folds = make_folds(data, args.window, args.folds)
     for k, (tr, va) in enumerate(folds):
         log(f"fold {k}: train {len(tr)} rows (to {data.df.Date[tr.max()].date()}), "
@@ -346,7 +384,7 @@ def tune(data, args, device, out):
             fo = make_folds(data, params["window"], args.folds)
         else:
             fo = folds
-        mean_loss, losses = cv_loss(params, data, cols, fo, device, args.tune_epochs, args.tune_patience,
+        mean_loss, losses = cv_loss(params, data, cols_from_params(params), fo, device, args.tune_epochs, args.tune_patience,
                                     args.seed, trial)
         trial.set_user_attr("fold_losses", losses)
         return mean_loss
@@ -371,7 +409,7 @@ def tune(data, args, device, out):
     best.setdefault("window", args.window)
     study.trials_dataframe().to_csv(out / "tuning_trials.csv", index=False)
     json.dump(best, open(out / "best_params.json", "w"), indent=2)
-    log("best params:", json.dumps(best), f"| CV val loss {study.best_value:.4f}",
+    log("best params:", json.dumps(best), f"| CV val MSE/drift-MSE {study.best_value:.4f}",
         "| fold losses", [round(x, 4) for x in study.best_trial.user_attrs["fold_losses"]])
     return best, study
 
@@ -379,23 +417,29 @@ def tune(data, args, device, out):
 # ----------------------------------------------------------------------------------------------
 # Ensemble fit / predict
 # ----------------------------------------------------------------------------------------------
+MAIN = "tuned"       # model whose feature groups / target scaling were chosen by the search
+
+
 class Ensemble:
     pass
 
 
 def fit_ensemble(name, params, data, seeds, device, max_epochs, patience, M):
-    cols = cols_for(name)
+    cols = cols_for(name, params)
     window = params["window"]
     tr, va, te = (data.rows([s], window) for s in ("train", "val", "test"))
     fit_rows = data.idx[data.split == "train"]
     Xs, scaler = scale_features(data.feats, cols, fit_rows)
     Wall = all_windows(Xs, window)
-    ym, ys = data.Y[tr].mean(0), data.Y[tr].std(0)
-    Ytr, Yva = (data.Y[tr] - ym) / ys, (data.Y[va] - ym) / ys
+    vs = data.vs(params)
+    Ye = data.Y / vs
+    ym, ys = Ye[tr].mean(0), Ye[tr].std(0)
+    Ytr, Yva = (Ye[tr] - ym) / ys, (Ye[va] - ym) / ys
     ens = Ensemble()
+    ens.vs_all = vs
     ens.name, ens.params, ens.cols, ens.scaler, ens.window = name, params, cols, scaler, window
     ens.ym, ens.ys, ens.Wall, ens.device = ym, ys, Wall, device
-    ens.M = M if name == "full" else min(M, 30)     # ablation members only need the point forecast
+    ens.M = M if name == MAIN else min(M, 30)     # ablation members only need the point forecast
     ens.models, ens.best_eps, ens.val_losses, ens.hists = [], [], [], []
     for s in seeds:
         m, best, ep, hist = train_model(params, take(Wall, tr, window), Ytr, take(Wall, va, window), Yva,
@@ -413,7 +457,7 @@ def predict(ens, rows):
     """Pooled MC samples in log-return units: (S*M, N, H)."""
     W = take(ens.Wall, rows, ens.window)
     S = np.concatenate([mc_predict(m, W, ens.M, ens.device) for m in ens.models])
-    return S * ens.ys + ens.ym
+    return (S * ens.ys + ens.ym) * ens.vs_all[rows][None]
 
 
 def conformal_k(mu, sd, y, conf):
@@ -551,7 +595,8 @@ def main():
     ap.add_argument("--folds", type=int, default=3)
     ap.add_argument("--window", type=int, default=30)
     ap.add_argument("--tune_window", action="store_true", help="also search window in {20,30,60}")
-    ap.add_argument("--seeds", type=int, default=5, help="ensemble members per model")
+    ap.add_argument("--no_shrink", action="store_true", help="skip validation-fitted shrinkage toward drift")
+    ap.add_argument("--seeds", type=int, default=10, help="ensemble members per model")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--mc", type=int, default=100, help="MC dropout passes per ensemble member")
     ap.add_argument("--confidence", type=float, default=0.90)
@@ -593,9 +638,8 @@ def main():
 
     # ---- 2. final models ----
     seeds = [args.seed + i for i in range(args.seeds)]
-    names = ["full"] if args.no_ablation else list(CONFIGS)
-    if "full" in names:
-        names = ["full"] + [n for n in names if n != "full"]
+    names = [MAIN] if args.no_ablation else [MAIN] + list(CONFIGS)
+    log("selected features:", cols_from_params(params))
     ens = {}
     for n in names:
         ens[n] = fit_ensemble(n, params, data, seeds, device, args.max_epochs, args.patience, args.mc)
@@ -603,13 +647,33 @@ def main():
     # ---- 3. predictions (val for calibration, test for evaluation) ----
     va, te = data.rows(["val"], window), data.rows(["test"], window)
     close_te, Y_te, close_va, Y_va = data.close[te], data.Y[te], data.close[va], data.Y[va]
-    mc_val, mc_test, mu_test = {}, {}, {}
+    tr = data.rows(["train"], window)
+    drift = data.Y[tr].mean(0)
+    mc_val, mc_test, mu_test, mu_raw, shrink = {}, {}, {}, {}, {}
+    spread = []
     for n, e in ens.items():
         mc_val[n], mc_test[n] = predict(e, va), predict(e, te)
+        mu_raw[n] = mc_test[n].mean(0)
+        # per-member skill (spread across seeds), before shrinkage
+        per = mc_test[n].reshape(len(e.models), -1, *mc_test[n].shape[1:]).mean(1)
+        for j, h in enumerate(HORIZONS):
+            sk = 1 - np.mean((per[:, :, j] - Y_te[:, j]) ** 2, axis=1) / np.mean(Y_te[:, j] ** 2)
+            spread.append({"model": n, "horizon": h,
+                           "ensemble_skill": 1 - np.mean((mu_raw[n][:, j] - Y_te[:, j]) ** 2) / np.mean(Y_te[:, j] ** 2),
+                           "member_skill_mean": sk.mean(), "member_skill_std": sk.std(),
+                           "member_skill_min": sk.min(), "member_skill_max": sk.max()})
+        # shrink toward the train drift; factor fitted on validation only, clipped to [0, 1]
+        mv0 = mc_val[n].mean(0)
+        d, t = mv0 - drift, Y_va - drift
+        s_ = np.clip((d * t).sum(0) / np.maximum((d * d).sum(0), 1e-12), 0.0, 1.0)
+        shrink[n] = np.ones(H) if args.no_shrink else s_
+        mc_val[n] = drift + shrink[n] * (mc_val[n] - drift)
+        mc_test[n] = drift + shrink[n] * (mc_test[n] - drift)
         mu_test[n] = mc_test[n].mean(0)
+    pd.DataFrame(spread).to_csv(out / "seed_spread.csv", index=False)
+    log("shrinkage factors (1 = no shrink):", {n: np.round(v, 2).tolist() for n, v in shrink.items() if n in (MAIN, "full")})
 
     # ---- 4. baselines ----
-    tr = data.rows(["train"], window)
     baselines = {"random_walk": np.zeros_like(Y_te),
                  "train_drift": np.tile(data.Y[tr].mean(0), (len(te), 1))}
     rp, alpha = ridge_baseline(data, window)
@@ -621,6 +685,7 @@ def main():
         rows += horizon_metrics(n, close_te, Y_te, mu)
     for n in ens:
         rows += horizon_metrics(f"lstm_{n}", close_te, Y_te, mu_test[n])
+    rows += horizon_metrics(f"lstm_{MAIN}_noshrink", close_te, Y_te, mu_raw[MAIN])
     metrics = pd.DataFrame(rows)
     metrics.to_csv(out / "test_metrics.csv", index=False)
     pd.set_option("display.width", 200)
@@ -628,9 +693,9 @@ def main():
     print(metrics.round(4).to_string(index=False))
 
     # ---- 5. intervals for the full model ----
-    f = ens["full"]
-    mv, sv = mc_val["full"].mean(0), mc_val["full"].std(0)
-    mt, st = mc_test["full"].mean(0), mc_test["full"].std(0)
+    f = ens[MAIN]
+    mv, sv = mc_val[MAIN].mean(0), mc_val[MAIN].std(0)
+    mt, st = mc_test[MAIN].mean(0), mc_test[MAIN].std(0)
     res_sd = np.sqrt(np.mean((mv - Y_va) ** 2, axis=0))          # validation residual scale per horizon
     tot_v, tot_t = np.sqrt(sv ** 2 + res_sd ** 2), np.sqrt(st ** 2 + res_sd ** 2)
     k = conformal_k(mv, tot_v, Y_va, args.confidence)
@@ -658,12 +723,12 @@ def main():
     # ---- 6. ablation significance + per-regime errors ----
     if len(ens) > 1:
         dm_rows = []
-        pairs = [("full", "price_only"), ("full", "no_regime"), ("full", "no_sentiment"),
-                 ("price_only", "random_walk"), ("full", "random_walk")]
+        pairs = [(MAIN, "price_only"), (MAIN, "full"), (MAIN, "train_drift"), (MAIN, "random_walk"),
+                 ("price_only", "random_walk"), ("full", "price_only"), ("full", "random_walk")]
         for a, b in pairs:
             for j, h in enumerate(HORIZONS):
                 e1 = mu_test[a][:, j] - Y_te[:, j]
-                e2 = (baselines["random_walk"][:, j] if b == "random_walk" else mu_test[b][:, j]) - Y_te[:, j]
+                e2 = (baselines[b][:, j] if b in baselines else mu_test[b][:, j]) - Y_te[:, j]
                 stat, p = dm_test(e1, e2, h)
                 dm_rows.append({"model_1": a, "model_2": b, "horizon": h, "DM_stat": stat, "p_value": p,
                                 "better": a if stat < 0 else b})
@@ -674,7 +739,7 @@ def main():
 
         reg = np.select([df.Regime_Bull.values[te] == 1, df.Regime_Bear.values[te] == 1], ["bull", "bear"], "sideways")
         rr = []
-        for n in ("full", "no_regime", "price_only"):
+        for n in (MAIN, "full", "price_only"):
             for rg in ("bull", "bear", "sideways"):
                 m = reg == rg
                 if m.sum() == 0:
@@ -687,7 +752,7 @@ def main():
 
     # ---- 7. save final model + latest forecast ----
     torch.save({"states": [m.state_dict() for m in f.models], "params": params, "cols": f.cols,
-                "scaler": f.scaler, "ym": f.ym, "ys": f.ys, "calib_k": k, "resid_sd": res_sd, "confidence": args.confidence,
+                "scaler": f.scaler, "ym": f.ym, "ys": f.ys, "shrink": shrink[MAIN], "drift": drift, "calib_k": k, "resid_sd": res_sd, "confidence": args.confidence,
                 "horizons": HORIZONS, "window": window}, out / "finsight_lstm.pt")
     json.dump(params, open(out / "best_params.json", "w"), indent=2)
 
@@ -697,7 +762,10 @@ def main():
         ff = make_features(fd)
         Xs = apply_scaler(ff, f.scaler)
         Wl = Xs[-window:][None]
-        S = np.concatenate([mc_predict(m, Wl, args.mc, device) for m in f.models]) * f.ys + f.ym
+        vs_last = (np.maximum(ff["roll_vol_20"].values[-1], 1e-3) * np.sqrt(np.array(HORIZONS, float))
+                   if params.get("target_scale", "none") == "vol" else np.ones(H))
+        S = (np.concatenate([mc_predict(m, Wl, args.mc, device) for m in f.models]) * f.ys + f.ym) * vs_last
+        S = drift + shrink[MAIN] * (S - drift)
         mu = S.mean(0)[0]
         sd = np.sqrt(S.std(0)[0] ** 2 + res_sd ** 2)
         c0 = fd.Close.iloc[-1]

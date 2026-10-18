@@ -1,0 +1,15 @@
+{
+  "hidden": 32,
+  "n_layers": 3,
+  "dropout": 0.17741145221694926,
+  "head_dim": 64,
+  "lr": 0.000945140365153293,
+  "weight_decay": 5.265917553792693e-05,
+  "batch_size": 64,
+  "loss": "huber",
+  "feat_epu": 0,
+  "feat_sent": 2,
+  "feat_regime": 0,
+  "target_scale": "none",
+  "window": 30
+}
