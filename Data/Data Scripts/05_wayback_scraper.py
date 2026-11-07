@@ -13,9 +13,9 @@ from bs4 import BeautifulSoup
 BASE_URL = "https://www.dawn.com/business"
 
 # === DATE RANGE (change these for each run) ===
-START_DATE = date(2014, 1, 1)
-END_DATE = date(2014, 12, 31)
-OUTPUT_CSV = "dawn_business_2014.csv"
+START_DATE = date(2013, 1, 1)
+END_DATE = date(2026, 10, 21)
+OUTPUT_CSV = "dawn_business_2013_2026.csv"
 
 MAX_WORKERS = 1
 REQUEST_TIMEOUT = 30

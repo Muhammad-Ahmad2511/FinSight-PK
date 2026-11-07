@@ -1,5 +1,5 @@
 # =============================================================================
-# Label the full Dawn Business 2015-2026 corpus with the fine-tuned DistilBERT
+# Label the full Dawn Business 2013-2026 corpus with the fine-tuned DistilBERT
 # (finsight_distilbert/best_model). Paste into ONE Colab cell and run.
 # Runtime > Change runtime type > GPU
 # =============================================================================
@@ -21,10 +21,10 @@ print(device, torch.cuda.get_device_name(0) if torch.cuda.is_available() else "N
 # --- Config -- EDIT THESE THREE LINES IF YOUR FILE/COLUMNS DIFFER ---
 DRIVE_DIR = "/content/drive/MyDrive/finsight_distilbert"
 BEST_MODEL_DIR = f"{DRIVE_DIR}/best_model"
-INPUT_PATH = f"{DRIVE_DIR}/dawn_business_2015_to_2026.csv"   # <- change if it's elsewhere / named differently
+INPUT_PATH = f"{DRIVE_DIR}/dawn_business_2013_to_2026.csv"   # <- change if it's elsewhere / named differently
 TITLE_COL = "title"
 TEXT_COL = "raw_text"
-OUTPUT_PATH = f"{DRIVE_DIR}/dawn_business_2015_to_2026_labeled.csv"
+OUTPUT_PATH = f"{DRIVE_DIR}/dawn_business_2013_to_2026_labeled.csv"
 
 MAX_LEN = 256
 BATCH_SIZE = 64   # inference only, no gradients -- can go bigger than training's 16
@@ -41,7 +41,7 @@ model.eval()
 # --- Load the corpus to label ---
 if not os.path.exists(INPUT_PATH):
     raise FileNotFoundError(
-        f"Couldn't find {INPUT_PATH}. Put dawn_business_2015_to_2026.csv in {DRIVE_DIR}, "
+        f"Couldn't find {INPUT_PATH}. Put dawn_business_2013_to_2026.csv in {DRIVE_DIR}, "
         f"or edit INPUT_PATH above to point at its actual location."
     )
 
