@@ -1,5 +1,6 @@
 """
-Train, tune and evaluate the FinSight multi-horizon LSTM (3 / 7 / 14 trading days).
+Train, tune and evaluate the FinSight multi-horizon LSTM. Horizons are read from the dataset file
+(target_logret_h* columns written by 07_build_lstm_dataset.py, default 1/3/5 trading days).
 
 Input : kse100_lstm_multi.csv and kse100_lstm_features.csv from 07_build_lstm_dataset.py
 Output: everything in <data_dir>/lstm_outputs (override with --out)
@@ -7,7 +8,7 @@ Output: everything in <data_dir>/lstm_outputs (override with --out)
 Pipeline
   1. Feature transform: price levels -> scale-free ratios (Open/High/Low/EMA/MACD relative to Close),
      counts -> log1p, EPU -> log. Raw Close is NOT a feature (it is non-stationary: 27k -> 189k).
-  2. Targets: log(Close[t+h]/Close[t]) for h = 3, 7, 14, standardised with train statistics.
+  2. Targets: log(Close[t+h]/Close[t]) for every horizon in the file, standardised with train statistics.
   3. Hyper-parameter search: Optuna (TPE + median pruning) over architecture, dropout, learning rate,
      weight decay, batch size, loss, FEATURE GROUPS (EPU on/off, sentiment none/core/all, regime on/off)
      and TARGET SCALING (raw log-return vs log-return divided by recent volatility * sqrt(h)). Objective = validation MSE relative to the train-mean-drift forecast
@@ -21,9 +22,9 @@ Pipeline
      validation split (normalised-residual conformal quantile). Raw and calibrated test coverage are
      both reported.
   6. Evaluation on the held-out test split vs baselines (random walk, train-drift, Ridge) and an
-     ablation (price-only, +EPU, +sentiment, +regime, no-regime, no-sentiment, full) with
+     ablation (price-only, +EPU, +Dawn EPU, +external, +old/compact/new sentiment, +regime, full variants) with
      Diebold-Mariano tests, per-regime errors and interval coverage.
-  7. Saves the final model + a latest 3/7/14-day forecast from the last rows of the features file.
+  7. Saves the final model + a latest multi-horizon forecast from the last rows of the features file.
 
 Requirements: torch numpy pandas scikit-learn optuna matplotlib
 Usage (Colab: just run the cell; per-config tuning, 150 trials and 10 seeds are the defaults):
@@ -48,10 +49,20 @@ import pandas as pd
 import torch
 import torch.nn as nn
 
-HORIZONS = (3, 7, 14)
+HORIZONS = (1, 3, 5)         # overwritten from the dataset by set_horizons()
 H = len(HORIZONS)
 MAX_H = max(HORIZONS)
 CLIP = 5.0
+AVAILABLE = set()            # feature columns present in the dataset (set after loading)
+
+
+def set_horizons(path):
+    """Read the horizons from the header of the multi-horizon file."""
+    global HORIZONS, H, MAX_H
+    cols = pd.read_csv(path, nrows=0).columns
+    hs = sorted(int(c.split("_h")[-1]) for c in cols if c.startswith("target_logret_h"))
+    assert hs, f"no target_logret_h* columns in {path}"
+    HORIZONS, H, MAX_H = tuple(hs), len(hs), max(hs)
 
 # ----------------------------------------------------------------------------------------------
 # Feature groups (ablation units)
@@ -59,21 +70,31 @@ CLIP = 5.0
 GROUPS = {
     "tech": ["open_rel", "high_rel", "low_rel", "ema12_rel", "ema26_rel", "macd_rel", "macd_sig_rel",
              "macd_hist_rel", "rsi", "ret", "roll_ret_20", "roll_vol_20"],
-    "epu": ["log_epu"],
+    "epu": ["log_epu", "epu_chg", "epu_dev"],                      # official EPU, publication-lagged
+    "dawn_epu": ["dawn_epu", "dawn_epu_chg"],                      # Dawn-based daily proxy
+    "external": ["x_spx", "x_eem", "x_oil", "x_gold", "x_dxy", "x_vix", "x_pkr_1d", "x_pkr_20d",
+                 "x_policy_chg", "x_days_policy"],
     "sentiment": ["sentiment_mean", "sentiment_sum", "log_articles", "log_pos", "log_neg", "log_neu",
-                  "confidence_mean", "has_news", "sent_3d", "sent_7d"],
+                  "confidence_mean", "has_news", "sent_3d", "sent_7d"],   # old 10 (baseline)
+    "sent_compact": ["sent_surprise", "sent_ewm_hl3", "neg_share_7d", "count_z"],
+    "sent_ewm": ["sent_ewm_hl1", "sent_ewm_hl3", "sent_ewm_hl10"],
+    "sent_new": ["sent_surprise", "sent_ewm_hl1", "sent_ewm_hl3", "sent_ewm_hl10", "neg_share_7d", "count_z"],
     "regime": ["regime_bear", "regime_bull", "regime_sideways"],
-    "sent_core": ["sentiment_mean", "log_articles", "sent_7d"],
 }
 BINARY = {"has_news", "regime_bear", "regime_bull", "regime_sideways"}   # not standardised
 CONFIGS = {
     "price_only": ["tech"],
     "price+epu": ["tech", "epu"],
-    "price+sentiment": ["tech", "sentiment"],
+    "price+dawn_epu": ["tech", "dawn_epu"],
+    "price+external": ["tech", "external"],
+    "price+sent_old": ["tech", "sentiment"],
+    "price+sent_compact": ["tech", "sent_compact"],
+    "price+sent_ewm": ["tech", "sent_ewm"],
+    "price+sent_new": ["tech", "sent_new"],
     "price+regime": ["tech", "regime"],
-    "no_regime": ["tech", "epu", "sentiment"],
-    "no_sentiment": ["tech", "epu", "regime"],
-    "full": ["tech", "epu", "sentiment", "regime"],
+    "full": ["tech", "epu", "dawn_epu", "external", "sent_compact", "regime"],
+    "full_no_sentiment": ["tech", "epu", "dawn_epu", "external", "regime"],
+    "full_no_external": ["tech", "epu", "dawn_epu", "sent_compact", "regime"],
 }
 
 
@@ -94,6 +115,14 @@ def make_features(df):
     f["roll_ret_20"] = df["Roll_Return_20"]
     f["roll_vol_20"] = df["Roll_Vol_20"]
     f["log_epu"] = np.log(df["EPU"])
+    for src, dst in (("EPU_chg", "epu_chg"), ("EPU_dev", "epu_dev"), ("DAWN_EPU", "dawn_epu"),
+                     ("DAWN_EPU_chg", "dawn_epu_chg"), ("X_SPX", "x_spx"), ("X_EEM", "x_eem"), ("X_OIL", "x_oil"),
+                     ("X_GOLD", "x_gold"), ("X_DXY", "x_dxy"), ("X_VIX", "x_vix"), ("X_PKR_1D", "x_pkr_1d"),
+                     ("X_PKR_20D", "x_pkr_20d"), ("X_POLICY_CHG", "x_policy_chg"), ("X_DAYS_POLICY", "x_days_policy"),
+                     ("sent_surprise", "sent_surprise"), ("sent_ewm_hl1", "sent_ewm_hl1"), ("sent_ewm_hl3", "sent_ewm_hl3"),
+                     ("sent_ewm_hl10", "sent_ewm_hl10"), ("neg_share_7d", "neg_share_7d"), ("count_z", "count_z")):
+        if src in df.columns:
+            f[dst] = df[src].astype(float)
     f["sentiment_mean"] = df["sentiment_mean"]
     f["sentiment_sum"] = df["sentiment_sum"]
     f["log_articles"] = np.log1p(df["article_count"])
@@ -110,20 +139,37 @@ def make_features(df):
     return f
 
 
+def _filter(cols):
+    return [c for c in cols if not AVAILABLE or c in AVAILABLE]
+
+
 def cols_from_params(params):
     g = ["tech"]
     if params.get("feat_epu", 1):
         g.append("epu")
-    g += {0: [], 1: ["sent_core"], 2: ["sentiment"]}[params.get("feat_sent", 2)]
+    if params.get("feat_dawn", 1):
+        g.append("dawn_epu")
+    if params.get("feat_ext", 1):
+        g.append("external")
+    g += {0: [], 1: ["sent_compact"], 2: ["sent_new"], 3: ["sentiment"]}[params.get("feat_sent", 1)]
     if params.get("feat_regime", 1):
         g.append("regime")
-    return [c for x in g for c in GROUPS[x]]
+    return _filter(list(dict.fromkeys(c for x in g for c in GROUPS[x])))
 
 
 def cols_for(config, params=None):
     if config == "tuned":
         return cols_from_params(params)
-    return [c for g in CONFIGS[config] for c in GROUPS[g]]
+    return _filter([c for g in CONFIGS[config] for c in GROUPS[g]])
+
+
+def prune_configs():
+    """Drop ablation configs whose feature groups are missing from the dataset (e.g. no external file)."""
+    for n in list(CONFIGS):
+        missing = [g for g in CONFIGS[n] if not all(c in AVAILABLE for c in GROUPS[g])]
+        if missing:
+            log(f"skipping config '{n}': groups missing from dataset: {missing}")
+            del CONFIGS[n]
 
 
 # ----------------------------------------------------------------------------------------------
@@ -158,6 +204,8 @@ class Data:
             assert ok, f"rows are not contiguous (target_date_h{h} mismatch): purge rows must be kept"
         self.df = df
         self.feats = make_features(df)
+        AVAILABLE.clear()
+        AVAILABLE.update(self.feats.columns)
         assert not self.feats.isna().any().any(), "NaNs in features"
         self.Y = df[[f"target_logret_h{h}" for h in HORIZONS]].values.astype(np.float64)
         self.close = df["Close"].values.astype(np.float64)
@@ -326,7 +374,9 @@ def suggest(trial, window, tune_window, fixed_feats=False):
     }
     if not fixed_feats:                                              # feature groups are searched only for MAIN
         p["feat_epu"] = trial.suggest_int("feat_epu", 0, 1)
-        p["feat_sent"] = trial.suggest_int("feat_sent", 0, 2)        # 0 none, 1 core(3), 2 all(10)
+        p["feat_dawn"] = trial.suggest_int("feat_dawn", 0, 1)
+        p["feat_ext"] = trial.suggest_int("feat_ext", 0, 1)
+        p["feat_sent"] = trial.suggest_int("feat_sent", 0, 3)        # 0 none, 1 compact(4), 2 new(6), 3 old(10)
         p["feat_regime"] = trial.suggest_int("feat_regime", 0, 1)
     return p
 
@@ -640,7 +690,10 @@ def main(argv=None):
     out.mkdir(parents=True, exist_ok=True)
     log(f"device {device} | out {out}")
 
+    set_horizons(data_dir / args.multi)
+    log(f"horizons from dataset: {HORIZONS}")
     data = Data(data_dir / args.multi)
+    prune_configs()
     df = data.df
     for s in ("train", "val", "test", "purge"):
         r = df[df.split == s]
@@ -771,8 +824,13 @@ def main(argv=None):
             return adj
 
         pairs = [(n, b, "vs_baseline") for n in ens for b in ("random_walk", "train_drift")]
-        pairs += [(a, "price_only", "contrast") for a in ens if a != "price_only"]
-        pairs += [("full", "tuned", "contrast"), ("price+sentiment", "price+regime", "contrast")]
+        pairs += [(a, "price_only", "contrast") for a in ens if a not in ("price_only", MAIN)] + \
+                 [(MAIN, "price_only", "contrast")]
+        pairs += [("full", "tuned", "contrast")]
+        for a_, b_ in (("price+sent_compact", "price+sent_old"), ("price+sent_new", "price+sent_old"),
+                       ("full", "full_no_sentiment"), ("full", "full_no_external")):
+            if a_ in ens and b_ in ens:
+                pairs.append((a_, b_, "contrast"))
         dm_rows = []
         for a, b, fam in pairs:
             for j, h in enumerate(HORIZONS):
